@@ -44,10 +44,10 @@ public class PCP {
         new Timer(33, e -> panel.repaint()).start();
         // prueba        
         //fb.renderTest();
-        //ExamplesFB efb = new ExamplesFB(fb);
+        ExamplesFB efb = new ExamplesFB(fb);
         //efb.FillTestPattern();
-        //efb.FillMandelbrotColor(50);
-        //fb.showVRAMViewer(); // ← lanzará el visor VRAM
+        efb.FillMandelbrotColor(50);
+        fb.showVRAMViewer(); // ← lanzará el visor VRAM
 
         // Hilo de ejecución del simulador
         new Thread(() -> {
