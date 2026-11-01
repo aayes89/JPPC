@@ -28,8 +28,6 @@ package pcp.gpu;
  * THE SOFTWARE.
  */
 
-import pcp.gpu.FrameBuffer;
-
 /**
  * @author Slam
  */
@@ -44,7 +42,7 @@ public class ExamplesFB {
         this.height = fb.getHeight();
     }
 
-    // ======== Llenar framebuffer con patrón de prueba
+    // Llenar framebuffer con patrón de prueba
     public void FillTestPattern() {
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
@@ -62,7 +60,7 @@ public class ExamplesFB {
         System.out.println("[DEBUG] framebuffer[0]=0x" + Integer.toHexString(fb.getFramebuffer()[0]));
     }
 
-    // ======== Comprobar si un punto pertenece al conjunto de Mandelbrot
+    // Comprobar si un punto pertenece al conjunto de Mandelbrot
     private int Mandelbrot(double real, double imag, int max_iter) {
         double z_real = 0.0;
         double z_imag = 0.0;
@@ -79,7 +77,7 @@ public class ExamplesFB {
         return max_iter;
     }
 
-    // ======== Llena el framebuffer con una imagen del conjunto de Mandelbrot (escala de grises)
+    // Llena el framebuffer con una imagen del conjunto de Mandelbrot (escala de grises)
     public void FillMandelbrotBW(int max_iter) {
         double scale_real = 3.0 / width;
         double scale_imag = 2.0 / height;
@@ -108,7 +106,7 @@ public class ExamplesFB {
         System.out.println("[DEBUG] framebuffer[0]=0x" + Integer.toHexString(fb.getFramebuffer()[0]));
     }
 
-    // ======== Llena el framebuffer con una imagen del conjunto de Mandelbrot (color)
+    // Llena el framebuffer con una imagen del conjunto de Mandelbrot (color)
     public void FillMandelbrotColor(int max_iter) {
         double scale_real = 3.0 / width;
         double scale_imag = 2.0 / height;

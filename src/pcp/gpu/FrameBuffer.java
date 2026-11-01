@@ -25,7 +25,6 @@ package pcp.gpu;
 
 import java.awt.Point;
 import java.util.Arrays;
-import javax.swing.JFrame;
 
 /**
  *
@@ -33,23 +32,25 @@ import javax.swing.JFrame;
  */
 public class FrameBuffer implements Device {
 
-    /**
-     * Framebuffer + untile para emulador Xbox 360 (PPC). Corrige: 1. índice
-     * base de macro‑tile (32×32) → antes se desfasaba 2. setPixel / printText
-     * ahora escriben en modo tiled 3. detile32 usa la fórmula oficial del Xenos
-     *
-     * @author Slam
+    /*
+     * Modelo de memoria de vídeo:
+     *  - gpuTiledBuffer ("VRAM"): lo que escribe la CPU emulada por MMIO.
+     *    Cada int es un píxel 0x??RRGGBB. Es lineal por defecto; si tiled=true
+     *    se interpreta en mosaicos Morton 32x32 (estilo Xenos).
+     *  - framebuffer: imagen lineal que muestra Swing (la genera present()).
+     * El mapeo big-endian de bytes sobre cada int hace que stw/stb/sth del
+     * código PPC y el int[] de Java vean los mismos píxeles.
      */
-    private final int[] framebuffer;      // lineal, ARGB listos para Swing
-    private final int[] gpuTiledBuffer;   // tal como los escribe la “GPU” emulada
-    private final FrameBufferPanel fbPanel;
-    private JFrame frame;
+    private final int[] framebuffer;      // lineal, listo para Swing
+    private final int[] gpuTiledBuffer;   // VRAM tal como la escribe la CPU
     private final int width;
     private final int height;
-    private final byte[] buffer;
-    private static final int BYTES_PER_PIXEL = 4;
+    private volatile boolean tiled = false;
+    private volatile int tileMode = 0;   // 0 lineal, 1 Morton 32x32, 2 Xenos (XGAddress2DTiledOffset)
+    private volatile boolean dirty = true;
     private PixelShader pixelShader = null;
     private VertexShader vertexShader = null;
+    private final Device registers = new Registers();
 
     public void setPixelShader(PixelShader shader) {
         this.pixelShader = shader;
@@ -63,43 +64,104 @@ public class FrameBuffer implements Device {
         this.width = width;
         this.height = height;
         this.framebuffer = new int[width * height];
-        this.gpuTiledBuffer = new int[width * height]; // corregido aquí
-        this.buffer = new byte[width * height * BYTES_PER_PIXEL];
-        this.fbPanel = new FrameBufferPanel(width, height, framebuffer);
+        // VRAM con relleno a múltiplos de 32 para que el modo tiled nunca se salga del array
+        int pw = (width + 31) & ~31, ph = (height + 31) & ~31;
+        this.gpuTiledBuffer = new int[pw * ph];
     }
 
-    @Override
-    public byte read(long address) {
-        int index = (int) address;
-        if (index >= 0 && index < buffer.length) {
-            return buffer[index];
-        }
-        return 0;
+    /** Tamaño en bytes de la ventana MMIO del framebuffer. */
+    public int sizeBytes() {
+        return gpuTiledBuffer.length * 4;
     }
 
-    @Override
-    public void write(long address, byte value) {
-        int index = (int) address;
-        if (index >= 0 && index < buffer.length) {
-            buffer[index] = value;
-        }
+    /** Registros de control (modo lineal/tiled, resolución, present). */
+    public Device getRegisters() {
+        return registers;
     }
 
+    // ---------- Device: acceso MMIO de la CPU ----------
     @Override
-    public int readWord(long address) {
-        int index = (int) address;
-        if (index < 0 || index >= buffer.length - 3) {
+    public byte read(long offs) {
+        if (offs < 0 || offs >= sizeBytes()) {
             return 0;
         }
-        return ((buffer[index] & 0xFF) << 24)
-                | ((buffer[index + 1] & 0xFF) << 16)
-                | ((buffer[index + 2] & 0xFF) << 8)
-                | (buffer[index + 3] & 0xFF);
+        int shift = 24 - 8 * (int) (offs & 3);
+        return (byte) (gpuTiledBuffer[(int) (offs >> 2)] >>> shift);
+    }
+
+    @Override
+    public void write(long offs, byte value) {
+        if (offs < 0 || offs >= sizeBytes()) {
+            return;
+        }
+        int i = (int) (offs >> 2);
+        int shift = 24 - 8 * (int) (offs & 3);
+        gpuTiledBuffer[i] = (gpuTiledBuffer[i] & ~(0xFF << shift)) | ((value & 0xFF) << shift);
+        dirty = true;
+    }
+
+    @Override
+    public int readWord(long offs) {
+        if ((offs & 3) == 0 && offs >= 0 && offs < sizeBytes()) {
+            return gpuTiledBuffer[(int) (offs >> 2)];
+        }
+        return Device.super.readWord(offs);
+    }
+
+    @Override
+    public void writeWord(long offs, int v) {
+        if ((offs & 3) == 0 && offs >= 0 && offs < sizeBytes()) {
+            gpuTiledBuffer[(int) (offs >> 2)] = v;
+            dirty = true;
+        } else {
+            Device.super.writeWord(offs, v);
+        }
     }
 
     @Override
     public boolean containsAddress(long address) {
-        return address >= 0 && address < buffer.length;
+        return address >= 0 && address < sizeBytes();
+    }
+
+    /** Registros: 0x00 modo (0 lineal, 1 tiled), 0x04 ancho, 0x08 alto, 0x0C present. */
+    private final class Registers implements Device {
+
+        @Override
+        public boolean containsAddress(long address) {
+            return address >= 0 && address < 0x10;
+        }
+
+        @Override
+        public byte read(long offs) {
+            int w = readWord(offs & ~3L);
+            return (byte) (w >>> (24 - 8 * (int) (offs & 3)));
+        }
+
+        @Override
+        public void write(long offs, byte v) {
+            if ((offs & 3) == 3) { // el último byte de la palabra dispara la escritura
+                writeWord(offs & ~3L, v & 0xFF);
+            }
+        }
+
+        @Override
+        public int readWord(long offs) {
+            switch ((int) offs) {
+                case 0x00: return tileMode;
+                case 0x04: return width;
+                case 0x08: return height;
+                default: return 0;
+            }
+        }
+
+        @Override
+        public void writeWord(long offs, int v) {
+            switch ((int) offs) {
+                case 0x00: setTileMode(v); break;
+                case 0x0C: present(); break;
+                default: break;
+            }
+        }
     }
 
     public int getWidth() {
@@ -110,45 +172,107 @@ public class FrameBuffer implements Device {
         return height;
     }
 
-    public byte[] getBuffer() {
-        return buffer;
-    }
-    public int[] getFramebuffer(){
+    public int[] getFramebuffer() {
         return framebuffer;
     }
 
-    public void clear() {
-        Arrays.fill(buffer, (byte) 0);
+    public boolean isTiled() {
+        return tiled;
+    }
+
+    public void setTiled(boolean t) {
+        tiled = t;
+        tileMode = t ? 1 : 0;
+        dirty = true;
+    }
+
+    /** 0 = lineal, 1 = Morton 32x32, 2 = tiling real del Xenos. */
+    public void setTileMode(int mode) {
+        tileMode = mode;
+        tiled = mode != 0;
+        dirty = true;
+    }
+
+    public int getTileMode() {
+        return tileMode;
     }
 
     /**
-     * Actualiza el panel: destila y repinta
+     * Desplazamiento en bytes de (x,y) en una superficie de 32 bpp con el tiling que produce
+     * LK/libxenon (derivado empíricamente comparando la superficie lineal con la tiled):
+     * macro-tiles de 32x32 píxeles (4 KB) en orden de filas, y dentro de cada tile un
+     * entrelazado de bits de x/y con un XOR entre x4 e y3.
      */
-    public void updateScreenTiled() {
-        detile32(gpuTiledBuffer, framebuffer, width, height);
-        
-        fbPanel.repaint();
+    static int xenosTiledOffset(int x, int y, int pitchPixels) {
+        int tile = (x >> 5) + (y >> 5) * ((pitchPixels + 31) >> 5);
+        int o = ((x & 1) << 2) | (((x >> 1) & 1) << 3) | ((y & 1) << 4) | (((x >> 2) & 1) << 5)
+                | (((x >> 3) & 1) << 6) | ((((x >> 4) & 1) ^ ((y >> 3) & 1)) << 7)
+                | (((y >> 1) & 1) << 8) | (((y >> 2) & 1) << 9) | (((y >> 3) & 1) << 10)
+                | (((y >> 4) & 1) << 11);
+        return (tile << 12) + o;
     }
 
+    private void detileXenos(int[] src, int[] dst, int w, int h) {
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int idx = xenosTiledOffset(x, y, w) >> 2;
+                dst[y * w + x] = idx < src.length ? Integer.reverseBytes(src[idx]) : 0;
+            }
+        }
+    }
+
+    public boolean isDirty() {
+        return dirty;
+    }
+
+    public void clear() {
+        Arrays.fill(gpuTiledBuffer, 0);
+        dirty = true;
+    }
+
+    /** Convierte VRAM -> imagen lineal (destila si hace falta). */
+    public void present() {
+        if (tileMode == 2) {
+            detileXenos(gpuTiledBuffer, framebuffer, width, height);
+        } else if (tiled) {
+            detile32(gpuTiledBuffer, framebuffer, width, height);
+        } else {
+            System.arraycopy(gpuTiledBuffer, 0, framebuffer, 0, framebuffer.length);
+        }
+        dirty = false;
+    }
+
+    /** Compatibilidad con ExamplesFB. */
+    public void updateScreenTiled() {
+        present();
+    }
+
+    /** Guarda la imagen actual como PNG (útil en modo headless). */
+    public void savePNG(java.io.File f) throws java.io.IOException {
+        present();
+        java.awt.image.BufferedImage img
+                = new java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        img.setRGB(0, 0, width, height, framebuffer, 0, width);
+        javax.imageio.ImageIO.write(img, "png", f);
+    }
+
+    /** Escribe un píxel desde Java respetando el modo actual (lineal/tiled). */
     public void setPixel(int x, int y, int color) {
         if (x < 0 || x >= width || y < 0 || y >= height) {
             return;
         }
-
-        final int tileSize = 32;
-        int macroTileX = x / tileSize;
-        int macroTileY = y / tileSize;
-        int tilesPerRow = (width + tileSize - 1) / tileSize;
-        int macroIndex = (macroTileY * tilesPerRow + macroTileX) * (tileSize * tileSize);
-
-        int microX = x % tileSize;
-        int microY = y % tileSize;
-        int morton = interleaveBits(microX, microY);
-
-        int tiledIndex = macroIndex + morton;
-        if (tiledIndex < width * height) {
-            gpuTiledBuffer[tiledIndex] = color;
+        int index = tileMode == 2 ? xenosTiledOffset(x, y, width) >> 2 : (tiled ? tiledIndex(x, y) : y * width + x);
+        if (index >= 0 && index < gpuTiledBuffer.length) {
+            gpuTiledBuffer[index] = tileMode == 2 ? Integer.reverseBytes(color) : color;
+            dirty = true;
         }
+    }
+
+    private int tiledIndex(int x, int y) {
+        final int tileSize = 32;
+        int tilesPerRow = (width + tileSize - 1) / tileSize;
+        int macroIndex = ((y / tileSize) * tilesPerRow + (x / tileSize)) * (tileSize * tileSize);
+        return macroIndex + interleaveBits(x % tileSize, y % tileSize);
     }
 
     /* ─── Detile 32×32 ─────────────────────────── */
@@ -171,7 +295,7 @@ public class FrameBuffer implements Device {
                 int macroIndex = (macroTileY * tilesPerRow + macroTileX) * pixelsPerTile;
                 int srcIndex = macroIndex + morton;
 
-                if (srcIndex < maxTileIndex) {
+                if (srcIndex < maxTileIndex && srcIndex < src.length) {
                     dst[y * width + x] = src[srcIndex];
                 } else {
                     dst[y * width + x] = 0; // borde negro
@@ -229,7 +353,7 @@ public class FrameBuffer implements Device {
 
     public void showVRAMViewer() {
         // refresca la vista destilada antes de mostrar
-        detile32(gpuTiledBuffer, framebuffer, width, height);
+        present();
         VRAMViewerFrame viewer = new VRAMViewerFrame(gpuTiledBuffer, framebuffer, width, height);
         viewer.setVisible(true);
     }

@@ -29,7 +29,18 @@ package pcp.gpu;
  */
 public class Console implements Device {
 
-    private final StringBuilder buffer = new StringBuilder();
+    private final StringBuilder history = new StringBuilder();
+    private volatile java.util.function.IntConsumer listener;
+    private volatile boolean echo = true;
+
+    /** Recibe cada carácter emitido (por ejemplo, para mostrarlo en una ventana). */
+    public void setListener(java.util.function.IntConsumer l) {
+        listener = l;
+    }
+
+    public void setEcho(boolean e) {
+        echo = e;
+    }
 
     @Override
     public byte read(long address) {
@@ -40,10 +51,16 @@ public class Console implements Device {
     public void write(long address, byte value) {
         if (address == 0) {
             char c = (char) (value & 0xFF);
-            buffer.append(c);
-            if (c == '\n') {
-                System.out.print(buffer);
-                buffer.setLength(0);
+            synchronized (history) {
+                history.append(c);
+            }
+            if (echo) {
+                System.out.print(c); // inmediato: el prompt "] " de LK no termina en '\n'
+                System.out.flush();
+            }
+            java.util.function.IntConsumer l = listener;
+            if (l != null) {
+                l.accept(c);
             }
         }
     }
@@ -53,24 +70,21 @@ public class Console implements Device {
         return address >= 0 && address < 4;
     }
 
+    /** Todo lo emitido hasta ahora. */
     public String getOutput() {
-        return buffer.toString();
+        synchronized (history) {
+            return history.toString();
+        }
     }
 
     public void clear() {
-        buffer.setLength(0);
+        synchronized (history) {
+            history.setLength(0);
+        }
     }
 
     @Override
     public int readWord(long address) {
-        int index = (int) address;
-        if (index < 0 || index >= buffer.length() - 3) {
-            return 0;
-        }
-
-        return ((buffer.charAt(index) & 0xFF) << 24)
-                | ((buffer.charAt(index + 1) & 0xFF) << 16)
-                | ((buffer.charAt(index + 2) & 0xFF) << 8)
-                | (buffer.charAt(index + 3) & 0xFF);
+        return 0;
     }
 }
