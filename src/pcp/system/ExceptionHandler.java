@@ -45,24 +45,25 @@ public class ExceptionHandler {
     }
 
     // Tipos de excepciones
-    public static final int EXCEPTION_RESET = 0x000;
-    public static final int EXCEPTION_TWI = 0x700;
-    public static final int EXCEPTION_MACHINE_CHECK = 0x100;
-    public static final int EXCEPTION_DATA_STORAGE = 0x200;
-    public static final int EXCEPTION_INSTRUCTION_STORAGE = 0x300;
-    public static final int EXCEPTION_EXTERNAL_INTERRUPT = 0x400;
+    // Vectores reales del PowerPC (offset desde 0x00000000)
+    public static final int EXCEPTION_RESET = 0x100;
+    public static final int EXCEPTION_MACHINE_CHECK = 0x200;
+    public static final int EXCEPTION_DATA_STORAGE = 0x300;
     public static final int EXCEPTION_DSI = 0x300;
+    public static final int EXCEPTION_INSTRUCTION_STORAGE = 0x400;
     public static final int EXCEPTION_ISI = 0x400;
-    public static final int EXCEPTION_ALIGNMENT = 0x500;
-    public static final int EXCEPTION_PROGRAM = 0x600;
-    public static final int EXCEPTION_FP = 0x700;
-    public static final int EXCEPTION_DECREMENTER = 0x800;
-    public static final int EXCEPTION_SYSTEM_CALL = 0x900;
-    public static final int EXCEPTION_TRACE = 0xA00;
-    public static final int EXCEPTION_PERFORMANCE_MONITOR = 0xB00;
-    public static final int EXCEPTION_INST_DEBUG = 0xC00;
-    public static final int EXCEPTION_DATA_DEBUG = 0xD00;
-    public static final int EXCEPTION_APU_UNAVAILABLE = 0xE00;
+    public static final int EXCEPTION_EXTERNAL_INTERRUPT = 0x500;
+    public static final int EXCEPTION_ALIGNMENT = 0x600;
+    public static final int EXCEPTION_PROGRAM = 0x700;
+    public static final int EXCEPTION_TWI = 0x700;
+    public static final int EXCEPTION_FP = 0x800;            // FP unavailable
+    public static final int EXCEPTION_DECREMENTER = 0x900;
+    public static final int EXCEPTION_SYSTEM_CALL = 0xC00;
+    public static final int EXCEPTION_TRACE = 0xD00;
+    public static final int EXCEPTION_PERFORMANCE_MONITOR = 0xF00;
+    public static final int EXCEPTION_INST_DEBUG = 0x1300;
+    public static final int EXCEPTION_DATA_DEBUG = 0x1300;
+    public static final int EXCEPTION_APU_UNAVAILABLE = 0xF20;
     public static final int EXCEPTION_INVALID = 0x0;
 
     // Manejar una excepción
@@ -85,7 +86,7 @@ public class ExceptionHandler {
                 cpu.handleInterrupt(0x700);
                 //cpu.setPc(0x700);
                 break;
-            // ... otros casos ...
+                // Añadir otros casos cuando los necesite
         }
     }
 
