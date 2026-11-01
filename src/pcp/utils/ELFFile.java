@@ -98,10 +98,13 @@ public class ELFFile {
         ByteBuffer buffer = ByteBuffer.wrap(elfData).order(byteOrder);
 
         int e_shoff = is64Bit ? (int) buffer.getLong(40) : buffer.getInt(32);
-        int e_shentsize = buffer.getShort(46) & 0xFFFF;
-        int e_shnum = buffer.getShort(48) & 0xFFFF;
-        int e_shstrndx = buffer.getShort(50) & 0xFFFF;
+        int e_shentsize = buffer.getShort(is64Bit ? 58 : 46) & 0xFFFF; // ELF32: 46, ELF64: 58
+        int e_shnum = buffer.getShort(is64Bit ? 60 : 48) & 0xFFFF;
+        int e_shstrndx = buffer.getShort(is64Bit ? 62 : 50) & 0xFFFF;
 
+        if (e_shnum == 0 || e_shoff == 0) {
+            return; // sin tabla de secciones
+        }
         if (e_shstrndx >= e_shnum) {
             throw new ELFException("Invalid section string table index: " + e_shstrndx);
         }
@@ -168,8 +171,8 @@ public class ELFFile {
         ByteBuffer buffer = ByteBuffer.wrap(elfData).order(byteOrder);
 
         int e_phoff = is64Bit ? (int) buffer.getLong(32) : buffer.getInt(28);
-        int e_phentsize = buffer.getShort(42) & 0xFFFF;
-        int e_phnum = buffer.getShort(44) & 0xFFFF;
+        int e_phentsize = buffer.getShort(is64Bit ? 54 : 42) & 0xFFFF;
+        int e_phnum = buffer.getShort(is64Bit ? 56 : 44) & 0xFFFF;
 
         if (e_phoff < 0 || e_phoff + e_phnum * e_phentsize > elfData.length) {
             throw new ELFException("Invalid program header table: offset=0x"
