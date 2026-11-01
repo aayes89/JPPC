@@ -62,7 +62,7 @@ public class CPU {
     // Registro de condición (CR: 32 bits, 8 campos de 4 bits)
     private long cr;
     private long lr;   // Link Register
-    private int ctr;  // Count Register
+    private long ctr;  // Count Register (64 bits)
     private long xer;  // Fixed-Point Exception Register (SO, OV, CA)
     private long msr;      // Machine State Register
     private long srr0;     // Save/Restore Register 0
@@ -93,9 +93,9 @@ public class CPU {
     private long reserveAddress = -1;
 
     // Máscaras para bits del XER    
-    public static final int XER_SO = 1 << 0; // Summary Overflow
-    public static final int XER_OV = 1 << 1; // Overflow
-    public static final int XER_CA = 1 << 2; // Carry
+    public static final int XER_SO = 0x80000000; // Summary Overflow (bit 0 PPC)
+    public static final int XER_OV = 0x40000000; // Overflow
+    public static final int XER_CA = 0x20000000; // Carry
     // Bits del MSR
     // Definir constantes para MSR
     //public static final int MSR_EE = 0x8000; // External Interrupt Enable
@@ -150,300 +150,983 @@ public class CPU {
         this.rotations = new Rotation(this);
     }
 
-    // Método intérprete principal
-    public void execute(int instruction, DecodingInstr.InstructionFields fields) {
-        long oldPC = pc;
-        try {
+    // =====================================================================
+    // Núcleo de ejecución PowerPC 64 bits (modo SF=1 como el Xenon real).
+    // Los GPR son de 64 bits; las instrucciones "de palabra" siguen la ISA.
+    // Los accesos a memoria usan los 32 bits bajos de la dirección efectiva.
+    // =====================================================================
+    private static final long M32 = 0xFFFFFFFFL;
+    private long nextPc;
+    private boolean decPending = false;
+    private volatile boolean halted = false;
+    private long instructionCount = 0;
+    private boolean haltOnSelfBranch = true;
+    private final long[] sprOther = new long[1024];
+    private long lastIllegalInsn = 0;
 
-            if (instruction != 0) {
-                System.out.println("Executing: PC=0x" + Long.toHexString(pc) + ", instruction=0x" + Integer.toHexString(instruction));
-            }
-            switch (fields.opcode()) {
-                case 0: // nop or reserved
-                    if (instruction != 0x60000000) {
-                        throw new UnsupportedOperationException("Invalid instruction for opcode 0: " + Integer.toHexString(instruction));
-                    }
-                    break;
-                case 1: // tdi (trap doubleword immediate, 64-bit)
-                    specialInstr.tdi(fields.rt(), fields.ra(), fields.si()); // TO = rt, SI = si
-                    break;
-                case 2: // tw
-                    specialInstr.tw(fields.rt(), fields.ra(), fields.ra(), instruction); // TO = rt, RA = ra
-                    break;
-                case 3: // twi
-                    specialInstr.twi(fields.rt(), fields.ra(), fields.si()); // TO = rt, SI = si
-                    break;
-                case 4:
-                    if (fields.xo() >= 512) { // SPE instructions
-                        spe.execute(fields);
-                    } else { // Paired-single instructions
-                        gfx.execute(fields);
-                    }
-                    break;
-                case 5:
-                case 6:
-                case 62:
-                    vector.execute(fields);
-                    break;
-                case 7: // mulli
-                    gpr[fields.rt()] = gpr[fields.ra()] * fields.si();
-                    break;
-                case 8: // subfic
-                    gpr[fields.rt()] = fields.si() - gpr[fields.ra()];
-                    // Update carry bit in XER if needed
-                    break;
-                case 9: // icbt (Xenon-specific)
-                    // Implement instruction cache block touch (likely a no-op in emulation)
-                    break;
-                case 10: // cmpli
-                    branchs.cmpli(fields);
-                    break;
-                case 11: // cmpi
-                    branchs.cmpi(fields);
-                    break;
-                case 12: // addic
-                    long result12 = (long) gpr[fields.ra()] + fields.si();
-                    gpr[fields.rt()] = (int) result12;
-                    // Update carry bit in XER
-                    break;
-                case 13: // addic.
-                    long result13 = (long) gpr[fields.ra()] + fields.si();
-                    gpr[fields.rt()] = (int) result13;
-                    // Update CR and carry bit in XER
-                    break;
-                case 14: // addi / li
-                    // LI es addi fields.rt(),0,IMM  (fields.ra()==0).  El inm. es signo‑extendido (16 bits).
-                    gpr[fields.rt()] = (fields.ra() == 0 ? 0 : gpr[fields.ra()]) + fields.si();
+    public void setTrace(boolean t) {
+        debugMode = t;
+    }
 
-                    /*if (isArithmeticExtended(opcode)) {
-                        integerArithmetic.executeExtended(extendedOpcode, instruction);
-                    } else {
-                        integerArithmetic.executePrimary(opcode, instruction);
-                    }*/
-                    break;
-                case 15: // addis / lis
-                    gpr[fields.rt()] = (fields.ra() == 0 ? 0 : gpr[fields.ra()]) + (fields.si() << 16);
-                    break;
-                case 16: // b / bl / ba / bla
-                    pc = (fields.aa() == 0 ? pc : 0) + fields.li();
-                    if (fields.lk() == 1) {
-                        gpr[14] = (int) (oldPC + 4); // Link register
-                    }
-                    break;
-                case 17: // sc
-                    branchs.sc(fields);
-                    break;
-                case 18: // bc / bcl
-                    long target = branchs.bc(fields);
-                    if (target != 0) {
-                        pc = target;
-                    }
-                    break;
-                case 19: // CR operations, branches, special
-                    branchs.executeExtended(fields);
-                    break;
+    public boolean isHalted() {
+        return halted;
+    }
 
-                case 20: // rlwimi
-                case 21: // rlwinm
-                case 22: // rlmi (Xenon-specific)
-                case 23: // rlwnm
-                    rotations.executePrimary(fields);
-                    break;
-                case 24: // ori
-                case 25: // oris
-                case 26: // xori
-                case 27: // xoris
-                case 28: // andi.
-                case 29: // andis.
-                    logical.executePrimary(fields);
-                    break;
-                case 30: // 64-bit rotations (rldicl, rldicr, rldimi, etc.)
-                    rotations.executeExtended(fields);
-                    break;
-                case 31: // Arithmetic, logical, memory, special
-                    switch (fields.xo()) {
-                        case 0: // cmp
-                            branchs.cmp(fields);
-                            break;
-                        case 4: // tw
-                            branchs.tw(fields);
-                            break;
-                        case 8: // subfc
-                            gpr[fields.rt()] = gpr[fields.rb()] - gpr[fields.ra()];
-                            // Update carry bit in XER
-                            break;
-                        case 10: // addc
-                            long result10 = (long) gpr[fields.ra()] + gpr[fields.rb()];
-                            gpr[fields.rt()] = (int) result10;
-                            // Update carry bit in XER
-                            break;
-                        case 11: // mulhwu
-                            long mul11 = (long) gpr[fields.ra()] * gpr[fields.rb()];
-                            gpr[fields.rt()] = (int) (mul11 >>> 32);
-                            break;
-                        case 19: // mfcr
-                            gpr[fields.rt()] = cr;
-                            break;
-                        case 20: // lwarx
-                        case 23: // lwzx
-                        case 55: // lwzux
-                        case 84: // ldarx
-                        case 86: // dcbf
-                        case 54: // dcbst
-                        case 119: // lbzx
-                        case 150: // stwcx.
-                        case 151: // stwx
-                        case 183: // stwux
-                        case 214: // stdcx.
-                        case 215: // stbx
-                        case 246: // dcbtst
-                        case 278: // dcbt
-                        case 375: // lhaux
-                        case 438: // ecowx
-                        case 439: // sthux
-                        case 533: // lswx
-                        case 598: // sync
-                        case 661: // stswx
-                        case 660: // stbux
-                        case 694: // stwbrx
-                        case 790: // lhbrx
-                        case 918: // sthbrx
-                        case 982: // icbi
-                        case 1014: // dcbz
-                            memoryOps.executeExtended(fields);
-                            break;
-                        case 24: // slw
-                            gpr[fields.ra()] = gpr[fields.rt()] << (gpr[fields.rb()] & 0x1F);
-                            break;
-                        case 26: // cntlzw
-                        case 28: // and
-                        case 60: // andc
-                        case 124: // nor
-                        case 284: // eqv
-                        case 316: // xor
-                        case 412: // orc
-                        case 444: // or
-                        case 476: // nand
-                        case 536: // srw
-                        case 792: // slw
-                        case 824: // sraw
-                        case 826: // srawi
-                        case 922: // extsh
-                        case 954: // extsb
-                        case 986: // extsw
-                            logical.executeExtended(fields);
-                            break;
-                        case 27: // sld
-                            gpr[fields.ra()] = gpr[fields.rt()] << (gpr[fields.rb()] & 0x3F); // 64-bit
-                            break;
-                        case 83: // mfmsr
-                            gpr[fields.rt()] = (int) (msr & 0xFFFFFFFFL);
-                            break;
-                        case 146: // mtmsr
-                            msr = gpr[fields.rt()] & 0xFFFFFFFFL;
-                            break;
-                        // Add more opcode 31 cases as needed (e.g., add, subf, divw, etc.)
-                        default:
-                            throw new UnsupportedOperationException("Unknown opcode 31, xo: " + fields.xo());
-                    }
-                    break;
-                case 32: // lbz
-                case 33: // lbzu
-                case 34: // lhz
-                case 35: // lhzu
-                case 36: // lwz
-                case 37: // lwzu
-                case 38: // lha
-                case 40: // stb
-                case 41: // stbu
-                case 42: // sth
-                case 43: // sthu
-                case 44: // stw
-                case 45: // stwu
-                case 46: // lmw
-                case 47: // stmw
-                    memoryOps.executePrimary(fields);
-                    break;
+    public void halt() {
+        halted = true;
+    }
 
-                case 39: // stbu
-                    long addr39 = (fields.ra() == 0 ? 0 : gpr[fields.ra()]) + fields.si();
-                    writeMemoryByte(addr39, (byte) (gpr[fields.rt()] & 0xFF));
-                    if (fields.ra() != 0) {
-                        gpr[fields.ra()] = (int) addr39;
-                    }
-                    break;
+    public void resume() {
+        halted = false;
+    }
 
-                case 48: // lfs
-                case 49: // lfsu
-                case 50: // lfd
-                case 51: // lfdu
-                case 52: // stfs
-                case 53: // stfsu
-                case 54: // stfd
-                case 55: // stfdu
-                case 56: // lfdp
-                case 57: // lfdpx
-                case 60: // stfdp
-                case 61: // stfdpx
-                    fp.executePrimary(fields);
-                    break;
-                case 59: // Single-precision extended
-                case 63: // Double-precision and other extended
-                    fp.executeExtended(fields);
-                    break;
-                case 58: // ld, ldu, ldarx
-                    switch (fields.xo()) {
-                        case 0: // ld
-                            gpr[fields.rt()] = readMemoryWord((fields.ra() == 0 ? 0 : gpr[fields.ra()]) + fields.si());
-                            break;
-                        case 1: // ldu
-                            long addr58 = (fields.ra() == 0 ? 0 : gpr[fields.ra()]) + fields.si();
-                            gpr[fields.rt()] = readMemoryWord(addr58);
-                            if (fields.ra() != 0) {
-                                gpr[fields.ra()] = (int) addr58;
-                            }
-                            break;
-                        case 2: // ldarx
-                            memoryOps.ldarx(fields.rt(), fields.ra(), fields.rb());
-                            break;
-                        default:
-                            throw new UnsupportedOperationException("Unknown opcode 58, xo: " + fields.xo());
-                    }
-                    break;
-                default:
-                    throw new UnsupportedOperationException("Unknown opcode: " + fields.opcode());
-            }
-        } catch (UnsupportedOperationException e) {
-            System.err.println("[CPU] Program exception at PC=0x" + Long.toHexString(oldPC) + ", Opcode: " + fields.opcode() + " : " + e.getMessage());
-            handleInterrupt(0x700); // Program Interrupt
+    public long getInstructionCount() {
+        return instructionCount;
+    }
+
+    public void setHaltOnSelfBranch(boolean v) {
+        haltOnSelfBranch = v;
+    }
+
+    private long r(int n) {
+        return gpr[n];
+    }
+
+    private void w(int n, long v) {
+        gpr[n] = v;
+    }
+
+    private long ra0(int ra) {
+        return ra == 0 ? 0 : gpr[ra];
+    }
+
+    private int crBit(int bi) {
+        return (int) ((cr >>> (31 - bi)) & 1);
+    }
+
+    private void crSetBit(int bi, int v) {
+        int sh = 31 - bi;
+        cr = ((cr & ~(1L << sh)) | ((long) (v & 1) << sh)) & M32;
+    }
+
+    private void crSetField(int f, int v) {
+        int sh = (7 - f) * 4;
+        cr = ((cr & ~(0xFL << sh)) | ((long) (v & 0xF) << sh)) & M32;
+    }
+
+    private void cmpCR(int crf, int cmp) {
+        int f = cmp < 0 ? 8 : (cmp > 0 ? 4 : 2);
+        if ((xer & 0x80000000L) != 0) {
+            f |= 1;
         }
+        crSetField(crf, f);
+    }
 
-        if (pc == oldPC) {
-            pc += 4;
+    private void cr0(long v) {
+        cmpCR(0, Long.signum(v));
+    }
+
+    private int caIn() {
+        return (xer & 0x20000000L) != 0 ? 1 : 0;
+    }
+
+    private void setCAf(boolean c) {
+        xer = c ? (xer | 0x20000000L) : (xer & ~0x20000000L);
+    }
+
+    private void setOVf(boolean ov) {
+        xer = ov ? (xer | 0xC0000000L) : (xer & ~0x40000000L);
+    }
+
+    /** Máscara con numeración PowerPC de 64 bits (bit 0 = MSB). */
+    private static long mask64(int mb, int me) {
+        long a = -1L >>> mb;
+        long b = -1L << (63 - me);
+        return mb <= me ? (a & b) : (a | b);
+    }
+
+    private static boolean isXOArith(int x9) {
+        switch (x9) {
+            case 8: case 9: case 10: case 11: case 40: case 73: case 75: case 104: case 136: case 138:
+            case 200: case 202: case 232: case 233: case 234: case 235: case 266: case 457: case 459:
+            case 489: case 491:
+                return true;
+            default:
+                return false;
         }
     }
 
-    public void handleInterrupt(int vector) {
-        if (interruptMode) {
-            // Avoid nested interrupts to prevent loops
-            System.err.println("[CPU] Nested interrupt detected at PC=0x" + Long.toHexString(pc) + ", vector=0x" + Integer.toHexString(vector));
+    /** rD = a + b + cin (64 bits) con carry/overflow/Rc opcionales. */
+    private void arith(int rd, long a, long b, int cin, boolean setCA, boolean oe, boolean rc) {
+        long res = a + b + cin;
+        w(rd, res);
+        if (setCA) {
+            setCAf(cin == 0 ? Long.compareUnsigned(res, a) < 0 : Long.compareUnsigned(res, a) <= 0);
+        }
+        if (oe) {
+            setOVf(((~(a ^ b)) & (a ^ res)) < 0);
+        }
+        if (rc) {
+            cr0(res);
+        }
+    }
+
+    private boolean trapCond(int to, long a, long b) {
+        return ((to & 16) != 0 && a < b) || ((to & 8) != 0 && a > b) || ((to & 4) != 0 && a == b)
+                || ((to & 2) != 0 && Long.compareUnsigned(a, b) < 0)
+                || ((to & 1) != 0 && Long.compareUnsigned(a, b) > 0);
+    }
+
+    private long ea(int ra, long d) {
+        return ra0(ra) + d;
+    }
+
+    private long eaX(int ra, int rb) {
+        return ra0(ra) + r(rb);
+    }
+
+    public long readMemoryDouble(long ea) {
+        return (readMemoryWord(ea) << 32) | readMemoryWord(ea + 4);
+    }
+
+    public void writeMemoryDouble(long ea, long v) {
+        writeMemoryWord(ea, v >>> 32);
+        writeMemoryWord(ea + 4, v & M32);
+    }
+
+    /** size: 1,2,4,8. sign: extensión de signo (lha/lwa). */
+    private void doLoad(int size, boolean sign, int rd, long ea) {
+        long v;
+        switch (size) {
+            case 1:
+                v = readMemoryByte(ea) & 0xFF;
+                break;
+            case 2:
+                v = readMemoryHalf(ea) & 0xFFFF;
+                if (sign) {
+                    v = (short) v;
+                }
+                break;
+            case 4:
+                v = readMemoryWord(ea);
+                if (sign) {
+                    v = (int) v;
+                }
+                break;
+            default:
+                v = readMemoryDouble(ea);
+        }
+        w(rd, v);
+    }
+
+    private void doStore(int size, long v, long ea) {
+        switch (size) {
+            case 1:
+                writeMemoryByte(ea, (byte) v);
+                break;
+            case 2:
+                writeMemoryHalf(ea, (int) v);
+                break;
+            case 4:
+                writeMemoryWord(ea, v & M32);
+                break;
+            default:
+                writeMemoryDouble(ea, v);
+        }
+    }
+
+    private long getSPR(int spr) {
+        switch (spr) {
+            case 1: return xer;
+            case 8: return lr;
+            case 9: return ctr;
+            case 18: return dsisr;
+            case 19: return dar;
+            case 22: return dec & M32;
+            case 25: return SDR1 & M32;
+            case 26: return srr0;
+            case 27: return srr1;
+            case 268: case 284: return timeBase;
+            case 269: case 285: return timeBase >>> 32;
+            case 272: return sprg0 & M32;
+            case 273: return sprg1 & M32;
+            case 274: return sprg2 & M32;
+            case 275: return sprg3 & M32;
+            case 287: return pvr & M32;
+            case 1023: return 0; // PIR (procesador 0)
+            default: return spr >= 0 && spr < sprOther.length ? sprOther[spr] : 0;
+        }
+    }
+
+    private void setSPR(int spr, long v) {
+        switch (spr) {
+            case 1: xer = v & M32; break;
+            case 8: lr = v; break;
+            case 9: ctr = v; break;
+            case 18: dsisr = v & M32; break;
+            case 19: dar = v; break;
+            case 22: dec = (int) v; decPending = false; break;
+            case 25: SDR1 = (int) v; break;
+            case 26: srr0 = v; break;
+            case 27: srr1 = v; break;
+            case 272: sprg0 = (int) v; break;
+            case 273: sprg1 = (int) v; break;
+            case 274: sprg2 = (int) v; break;
+            case 275: sprg3 = (int) v; break;
+            case 284: timeBase = (timeBase & ~M32) | (v & M32); break;
+            case 285: timeBase = (timeBase & M32) | (v << 32); break;
+            default:
+                if (spr >= 0 && spr < sprOther.length) {
+                    sprOther[spr] = v; // HID*, HRMOR, LPCR, BATs...: se guardan sin efecto
+                }
+        }
+    }
+
+    /** kind: 0 = bc, 1 = bclr, 2 = bcctr */
+    private void branchConditional(int insn, int kind) {
+        int bo = (insn >>> 21) & 31, bi = (insn >>> 16) & 31;
+        if ((bo & 4) == 0) {
+            ctr--;
+        }
+        boolean ctrOk = (bo & 4) != 0 || ((ctr != 0) ^ ((bo & 2) != 0));
+        boolean condOk = (bo & 16) != 0 || (crBit(bi) == ((bo & 8) != 0 ? 1 : 0));
+        long target;
+        if (kind == 0) {
+            long d = (short) (insn & 0xFFFC);
+            target = (insn & 2) != 0 ? d : pc + d;
+        } else if (kind == 1) {
+            target = lr & ~3L;
+        } else {
+            target = ctr & ~3L;
+        }
+        if ((insn & 1) != 0) {
+            lr = (pc + 4) & M32;
+        }
+        if (ctrOk && condOk) {
+            nextPc = target & M32;
+        }
+    }
+
+    /** Entrada de excepción PowerPC. savedPc = valor para SRR0. */
+    private void takeException(int vector, long savedPc, long extra) {
+        srr0 = savedPc;
+        srr1 = (msr & ~0xFFFFL) | (msr & 0xFFFFL) | extra;
+        msr &= ~(long) (MSR_EE | MSR_PR | MSR_FP | MSR_IR | MSR_DR);
+        interruptMode = true;
+        nextPc = vector & M32;
+        if (bus.readWord(vector) == 0) {
+            System.err.println("[CPU] Excepción 0x" + Integer.toHexString(vector) + " en PC=0x"
+                    + Long.toHexString(savedPc) + " sin manejador instalado: CPU detenida"
+                    + (lastIllegalInsn != 0 ? String.format(" (insn 0x%08x)", lastIllegalInsn) : ""));
+            halted = true;
+        }
+    }
+
+    private void illegal(int insn) {
+        System.err.println(String.format("[CPU] Instrucción ilegal/no implementada 0x%08x en PC=0x%x",
+                insn, pc));
+        lastIllegalInsn = insn & M32;
+        takeException(ExceptionHandler.EXCEPTION_PROGRAM, pc, 0x00080000L);
+    }
+
+    private static double sd(double v) { // redondeo a precisión simple
+        return (double) (float) v;
+    }
+
+    public void execute(int insn, DecodingInstr.InstructionFields fields) {
+        final int op = insn >>> 26;
+        final int rd = (insn >>> 21) & 31, ra = (insn >>> 16) & 31, rb = (insn >>> 11) & 31;
+        final long simm = (short) insn;
+        final long uimm = insn & 0xFFFFL;
+        final boolean rc = (insn & 1) != 0;
+        nextPc = (pc + 4) & M32;
+        if (debugMode) {
+            System.out.printf("PC=%08x insn=%08x%n", pc, insn);
+        }
+        try {
+            switch (op) {
+                case 2: // tdi
+                    if (trapCond(rd, r(ra), simm)) {
+                        takeException(ExceptionHandler.EXCEPTION_PROGRAM, pc, 0x00020000L);
+                    }
+                    break;
+                case 3: // twi
+                    if (trapCond(rd, (int) r(ra), (int) simm)) {
+                        takeException(ExceptionHandler.EXCEPTION_PROGRAM, pc, 0x00020000L);
+                    }
+                    break;
+                case 7: // mulli
+                    w(rd, r(ra) * simm);
+                    break;
+                case 8: { // subfic: rD = SI - rA
+                    long a = ~r(ra);
+                    long res = a + simm + 1;
+                    w(rd, res);
+                    setCAf(Long.compareUnsigned(res, a) <= 0);
+                    break;
+                }
+                case 10: { // cmpli
+                    int crf = (insn >>> 23) & 7;
+                    if ((insn & 0x00200000) != 0) {
+                        cmpCR(crf, Long.compareUnsigned(r(ra), uimm));
+                    } else {
+                        cmpCR(crf, Integer.compareUnsigned((int) r(ra), (int) uimm));
+                    }
+                    break;
+                }
+                case 11: { // cmpi
+                    int crf = (insn >>> 23) & 7;
+                    if ((insn & 0x00200000) != 0) {
+                        cmpCR(crf, Long.compare(r(ra), simm));
+                    } else {
+                        cmpCR(crf, Integer.compare((int) r(ra), (int) simm));
+                    }
+                    break;
+                }
+                case 12: // addic
+                case 13: { // addic.
+                    long a = r(ra);
+                    long res = a + simm;
+                    w(rd, res);
+                    setCAf(Long.compareUnsigned(res, a) < 0);
+                    if (op == 13) {
+                        cr0(res);
+                    }
+                    break;
+                }
+                case 14: // addi / li
+                    w(rd, ra0(ra) + simm);
+                    break;
+                case 15: // addis / lis
+                    w(rd, ra0(ra) + (simm << 16));
+                    break;
+                case 16: // bc
+                    branchConditional(insn, 0);
+                    break;
+                case 17: // sc
+                    takeException(ExceptionHandler.EXCEPTION_SYSTEM_CALL, pc + 4, 0);
+                    break;
+                case 18: { // b
+                    long li = ((insn & 0x03FFFFFC) << 6) >> 6;
+                    long target = (insn & 2) != 0 ? li : pc + li;
+                    if ((insn & 1) != 0) {
+                        lr = (pc + 4) & M32;
+                    }
+                    nextPc = target & M32;
+                    break;
+                }
+                case 19: {
+                    int xo = (insn >>> 1) & 0x3FF;
+                    switch (xo) {
+                        case 16: branchConditional(insn, 1); break;   // bclr
+                        case 528: branchConditional(insn, 2); break;  // bcctr
+                        case 50: // rfi
+                        case 18: // rfid
+                            nextPc = srr0 & ~3L & M32;
+                            msr = srr1;
+                            interruptMode = false;
+                            break;
+                        case 150: break; // isync
+                        case 0: { // mcrf
+                            int src = (int) getCrField((insn >>> 18) & 7);
+                            crSetField((insn >>> 23) & 7, src);
+                            break;
+                        }
+                        case 257: crSetBit(rd, crBit(ra) & crBit(rb)); break;        // crand
+                        case 129: crSetBit(rd, crBit(ra) & ~crBit(rb)); break;       // crandc
+                        case 289: crSetBit(rd, ~(crBit(ra) ^ crBit(rb))); break;     // creqv
+                        case 225: crSetBit(rd, ~(crBit(ra) & crBit(rb))); break;     // crnand
+                        case 33: crSetBit(rd, ~(crBit(ra) | crBit(rb))); break;      // crnor
+                        case 449: crSetBit(rd, crBit(ra) | crBit(rb)); break;        // cror
+                        case 417: crSetBit(rd, crBit(ra) | ~crBit(rb)); break;       // crorc
+                        case 193: crSetBit(rd, crBit(ra) ^ crBit(rb)); break;        // crxor
+                        default: illegal(insn);
+                    }
+                    break;
+                }
+                case 20: { // rlwimi
+                    long m = mask64(((insn >>> 6) & 31) + 32, ((insn >>> 1) & 31) + 32);
+                    int rot = Integer.rotateLeft((int) r(rd), rb);
+                    long rr = (rot & M32) | ((long) rot << 32);
+                    long v = (rr & m) | (r(ra) & ~m);
+                    w(ra, v);
+                    if (rc) cr0(v);
+                    break;
+                }
+                case 21: { // rlwinm
+                    long m = mask64(((insn >>> 6) & 31) + 32, ((insn >>> 1) & 31) + 32);
+                    int rot = Integer.rotateLeft((int) r(rd), rb);
+                    long v = ((rot & M32) | ((long) rot << 32)) & m;
+                    w(ra, v);
+                    if (rc) cr0(v);
+                    break;
+                }
+                case 23: { // rlwnm
+                    long m = mask64(((insn >>> 6) & 31) + 32, ((insn >>> 1) & 31) + 32);
+                    int rot = Integer.rotateLeft((int) r(rd), (int) (r(rb) & 31));
+                    long v = ((rot & M32) | ((long) rot << 32)) & m;
+                    w(ra, v);
+                    if (rc) cr0(v);
+                    break;
+                }
+                case 24: w(ra, r(rd) | uimm); break;                  // ori
+                case 25: w(ra, r(rd) | (uimm << 16)); break;          // oris
+                case 26: w(ra, r(rd) ^ uimm); break;                  // xori
+                case 27: w(ra, r(rd) ^ (uimm << 16)); break;          // xoris
+                case 28: { long v = r(rd) & uimm; w(ra, v); cr0(v); break; }           // andi.
+                case 29: { long v = r(rd) & (uimm << 16); w(ra, v); cr0(v); break; }   // andis.
+                case 30:
+                    execRotate64(insn, rd, ra, rb, rc);
+                    break;
+                case 31:
+                    execOp31(insn, rd, ra, rb, rc);
+                    break;
+                case 32: doLoad(4, false, rd, ea(ra, simm)); break;                    // lwz
+                case 33: { long e = ea(ra, simm); doLoad(4, false, rd, e); w(ra, e); break; } // lwzu
+                case 34: doLoad(1, false, rd, ea(ra, simm)); break;                    // lbz
+                case 35: { long e = ea(ra, simm); doLoad(1, false, rd, e); w(ra, e); break; }
+                case 36: doStore(4, r(rd), ea(ra, simm)); break;                       // stw
+                case 37: { long e = ea(ra, simm); doStore(4, r(rd), e); w(ra, e); break; }
+                case 38: doStore(1, r(rd), ea(ra, simm)); break;                       // stb
+                case 39: { long e = ea(ra, simm); doStore(1, r(rd), e); w(ra, e); break; }
+                case 40: doLoad(2, false, rd, ea(ra, simm)); break;                    // lhz
+                case 41: { long e = ea(ra, simm); doLoad(2, false, rd, e); w(ra, e); break; }
+                case 42: doLoad(2, true, rd, ea(ra, simm)); break;                     // lha
+                case 43: { long e = ea(ra, simm); doLoad(2, true, rd, e); w(ra, e); break; }
+                case 44: doStore(2, r(rd), ea(ra, simm)); break;                       // sth
+                case 45: { long e = ea(ra, simm); doStore(2, r(rd), e); w(ra, e); break; }
+                case 46: { // lmw
+                    long e = ea(ra, simm);
+                    for (int i = rd; i < 32; i++, e += 4) {
+                        doLoad(4, false, i, e);
+                    }
+                    break;
+                }
+                case 47: { // stmw
+                    long e = ea(ra, simm);
+                    for (int i = rd; i < 32; i++, e += 4) {
+                        doStore(4, r(i), e);
+                    }
+                    break;
+                }
+                case 48: fpr[rd] = (double) Float.intBitsToFloat((int) readMemoryWord(ea(ra, simm))); break; // lfs
+                case 49: { long e = ea(ra, simm); fpr[rd] = (double) Float.intBitsToFloat((int) readMemoryWord(e)); w(ra, e); break; }
+                case 50: fpr[rd] = Double.longBitsToDouble(readMemoryDouble(ea(ra, simm))); break;          // lfd
+                case 51: { long e = ea(ra, simm); fpr[rd] = Double.longBitsToDouble(readMemoryDouble(e)); w(ra, e); break; }
+                case 52: writeMemoryWord(ea(ra, simm), Float.floatToRawIntBits((float) fpr[rd]) & M32); break; // stfs
+                case 53: { long e = ea(ra, simm); writeMemoryWord(e, Float.floatToRawIntBits((float) fpr[rd]) & M32); w(ra, e); break; }
+                case 54: writeMemoryDouble(ea(ra, simm), Double.doubleToRawLongBits(fpr[rd])); break;       // stfd
+                case 55: { long e = ea(ra, simm); writeMemoryDouble(e, Double.doubleToRawLongBits(fpr[rd])); w(ra, e); break; }
+                case 58: { // ld / ldu / lwa (DS-form)
+                    long d = (short) (insn & 0xFFFC);
+                    long e = ea(ra, d);
+                    switch (insn & 3) {
+                        case 0: doLoad(8, false, rd, e); break;
+                        case 1: doLoad(8, false, rd, e); w(ra, e); break;
+                        case 2: doLoad(4, true, rd, e); break;
+                        default: illegal(insn);
+                    }
+                    break;
+                }
+                case 62: { // std / stdu
+                    long d = (short) (insn & 0xFFFC);
+                    long e = ea(ra, d);
+                    switch (insn & 3) {
+                        case 0: doStore(8, r(rd), e); break;
+                        case 1: doStore(8, r(rd), e); w(ra, e); break;
+                        default: illegal(insn);
+                    }
+                    break;
+                }
+                case 59:
+                    execFP(insn, true);
+                    break;
+                case 63:
+                    execFP(insn, false);
+                    break;
+                case 4: {
+                    DecodingInstr.InstructionFields f = fields != null ? fields : DecodingInstr.decode(insn);
+                    if (f.xo() >= 512) {
+                        spe.execute(f);
+                    } else {
+                        gfx.execute(f);
+                    }
+                    break;
+                }
+                case 5: case 6:
+                    vector.execute(fields != null ? fields : DecodingInstr.decode(insn)); // sin auditar
+                    break;
+                default:
+                    illegal(insn);
+            }
+        } catch (RuntimeException e) {
+            System.err.println("[CPU] Error ejecutando 0x" + Integer.toHexString(insn) + " en PC=0x"
+                    + Long.toHexString(pc) + ": " + e);
+            lastIllegalInsn = insn & M32;
+            takeException(ExceptionHandler.EXCEPTION_PROGRAM, pc, 0x00080000L);
+        }
+        pc = nextPc & M32;
+        instructionCount++;
+    }
+
+    /** Opcode 30: rotaciones de 64 bits (MD y MDS). */
+    private void execRotate64(int insn, int rs, int ra, int rb, boolean rc) {
+        int sh = rb | ((insn & 2) << 4);
+        int mb = ((insn >>> 6) & 0x1F) | (insn & 0x20);
+        long src = r(rs);
+        long v;
+        switch ((insn >>> 2) & 7) {
+            case 0: v = Long.rotateLeft(src, sh) & mask64(mb, 63); break;                    // rldicl
+            case 1: v = Long.rotateLeft(src, sh) & mask64(0, mb); break;                     // rldicr
+            case 2: v = Long.rotateLeft(src, sh) & mask64(mb, 63 - sh); break;               // rldic
+            case 3: {                                                                         // rldimi
+                long m = mask64(mb, 63 - sh);
+                v = (Long.rotateLeft(src, sh) & m) | (r(ra) & ~m);
+                break;
+            }
+            case 4: { // rldcl / rldcr
+                int n = (int) (r(rb) & 63);
+                if (((insn >>> 1) & 1) == 0) {
+                    v = Long.rotateLeft(src, n) & mask64(mb, 63);
+                } else {
+                    v = Long.rotateLeft(src, n) & mask64(0, mb);
+                }
+                break;
+            }
+            default:
+                illegal(insn);
+                return;
+        }
+        w(ra, v);
+        if (rc) cr0(v);
+    }
+
+    private void execOp31(int insn, int rd, int ra, int rb, boolean rc) {
+        int xo = (insn >>> 1) & 0x3FF;
+        int key = xo;
+        boolean oe = false;
+        if ((xo & 0x200) != 0 && isXOArith(xo & 0x1FF)) {
+            key = xo & 0x1FF;
+            oe = true;
+        }
+        long a = r(ra), b = r(rb), s = r(rd);
+        switch (key) {
+            case 0: // cmp
+                if ((insn & 0x00200000) != 0) cmpCR((insn >>> 23) & 7, Long.compare(a, b));
+                else cmpCR((insn >>> 23) & 7, Integer.compare((int) a, (int) b));
+                break;
+            case 32: // cmpl
+                if ((insn & 0x00200000) != 0) cmpCR((insn >>> 23) & 7, Long.compareUnsigned(a, b));
+                else cmpCR((insn >>> 23) & 7, Integer.compareUnsigned((int) a, (int) b));
+                break;
+            case 4: // tw
+                if (trapCond(rd, (int) a, (int) b)) {
+                    takeException(ExceptionHandler.EXCEPTION_PROGRAM, pc, 0x00020000L);
+                }
+                break;
+            case 68: // td
+                if (trapCond(rd, a, b)) {
+                    takeException(ExceptionHandler.EXCEPTION_PROGRAM, pc, 0x00020000L);
+                }
+                break;
+            case 8: arith(rd, ~a, b, 1, true, oe, rc); break;            // subfc
+            case 9: { long v = Math.unsignedMultiplyHigh(a, b); w(rd, v); if (rc) cr0(v); break; } // mulhdu
+            case 10: arith(rd, a, b, 0, true, oe, rc); break;            // addc
+            case 11: { long v = ((a & M32) * (b & M32)) >>> 32; w(rd, v); if (rc) cr0(v); break; } // mulhwu
+            case 19: // mfcr / mfocrf
+                if ((insn & 0x00100000) != 0) {
+                    int fxm = (insn >>> 12) & 0xFF;
+                    long v = 0;
+                    for (int n = 0; n < 8; n++) {
+                        if ((fxm & (0x80 >> n)) != 0) v |= cr & (0xFL << ((7 - n) * 4));
+                    }
+                    w(rd, v);
+                } else {
+                    w(rd, cr);
+                }
+                break;
+            case 20: { long e = eaX(ra, rb); doLoad(4, false, rd, e); reserveAddress = e & M32; break; } // lwarx
+            case 21: doLoad(8, false, rd, eaX(ra, rb)); break;           // ldx
+            case 23: doLoad(4, false, rd, eaX(ra, rb)); break;           // lwzx
+            case 24: { long v = (b & 63) >= 32 ? 0 : ((s & M32) << (int) (b & 63)) & M32; w(ra, v); if (rc) cr0(v); break; } // slw
+            case 26: { long v = Integer.numberOfLeadingZeros((int) s); w(ra, v); if (rc) cr0(v); break; } // cntlzw
+            case 27: { long v = (b & 127) >= 64 ? 0 : s << (int) (b & 63); w(ra, v); if (rc) cr0(v); break; } // sld
+            case 28: { long v = s & b; w(ra, v); if (rc) cr0(v); break; }       // and
+            case 40: arith(rd, ~a, b, 1, false, oe, rc); break;          // subf
+            case 53: { long e = eaX(ra, rb); doLoad(8, false, rd, e); w(ra, e); break; } // ldux
+            case 54: case 86: case 246: case 278: case 982: case 598: case 854: case 470:
+            case 306: case 566: case 498: case 434: case 402: case 370: case 595: case 659:
+            case 210: case 242: case 307: case 886:
+                break; // dcbst/dcbf/dcbtst/dcbt/icbi/sync/eieio/dcbi/tlbie/tlbsync/slb*/mtsr...: sin efecto
+            case 55: { long e = eaX(ra, rb); doLoad(4, false, rd, e); w(ra, e); break; } // lwzux
+            case 58: { long v = Long.numberOfLeadingZeros(s); w(ra, v); if (rc) cr0(v); break; } // cntlzd
+            case 60: { long v = s & ~b; w(ra, v); if (rc) cr0(v); break; }      // andc
+            case 73: { long v = Math.multiplyHigh(a, b); w(rd, v); if (rc) cr0(v); break; } // mulhd
+            case 75: { long v = ((long) (int) a * (int) b) >> 32; w(rd, (int) v); if (rc) cr0((int) v); break; } // mulhw
+            case 83: w(rd, msr); break;                                   // mfmsr
+            case 84: { long e = eaX(ra, rb); doLoad(8, false, rd, e); reserveAddress = e & M32; break; } // ldarx
+            case 87: doLoad(1, false, rd, eaX(ra, rb)); break;           // lbzx
+            case 104: arith(rd, ~a, 0, 1, false, oe, rc); break;         // neg
+            case 119: { long e = eaX(ra, rb); doLoad(1, false, rd, e); w(ra, e); break; } // lbzux
+            case 124: { long v = ~(s | b); w(ra, v); if (rc) cr0(v); break; }   // nor
+            case 136: arith(rd, ~a, b, caIn(), true, oe, rc); break;     // subfe
+            case 138: arith(rd, a, b, caIn(), true, oe, rc); break;      // adde
+            case 144: { // mtcrf / mtocrf
+                int fxm = (insn >>> 12) & 0xFF;
+                for (int n = 0; n < 8; n++) {
+                    if ((fxm & (0x80 >> n)) != 0) {
+                        crSetField(n, (int) ((s >>> ((7 - n) * 4)) & 0xF));
+                    }
+                }
+                break;
+            }
+            case 146: msr = s; break;                                     // mtmsr
+            case 178: msr = s; break;                                     // mtmsrd
+            case 149: doStore(8, s, eaX(ra, rb)); break;                 // stdx
+            case 150: { // stwcx.
+                long e = eaX(ra, rb);
+                boolean ok = reserveAddress == (e & M32);
+                if (ok) {
+                    doStore(4, s, e);
+                }
+                reserveAddress = -1;
+                crSetField(0, (ok ? 2 : 0) | ((xer & 0x80000000L) != 0 ? 1 : 0));
+                break;
+            }
+            case 151: doStore(4, s, eaX(ra, rb)); break;                 // stwx
+            case 181: { long e = eaX(ra, rb); doStore(8, s, e); w(ra, e); break; } // stdux
+            case 183: { long e = eaX(ra, rb); doStore(4, s, e); w(ra, e); break; } // stwux
+            case 200: arith(rd, ~a, 0, caIn(), true, oe, rc); break;     // subfze
+            case 202: arith(rd, a, 0, caIn(), true, oe, rc); break;      // addze
+            case 214: { // stdcx.
+                long e = eaX(ra, rb);
+                boolean ok = reserveAddress == (e & M32);
+                if (ok) {
+                    doStore(8, s, e);
+                }
+                reserveAddress = -1;
+                crSetField(0, (ok ? 2 : 0) | ((xer & 0x80000000L) != 0 ? 1 : 0));
+                break;
+            }
+            case 215: doStore(1, s, eaX(ra, rb)); break;                 // stbx
+            case 232: arith(rd, ~a, -1, caIn(), true, oe, rc); break;    // subfme
+            case 233: { // mulld
+                long v = a * b;
+                w(rd, v);
+                if (oe) setOVf(Math.multiplyHigh(a, b) != (v >> 63));
+                if (rc) cr0(v);
+                break;
+            }
+            case 234: arith(rd, a, -1, caIn(), true, oe, rc); break;     // addme
+            case 235: { // mullw
+                long p = (long) (int) a * (int) b;
+                w(rd, p);
+                if (oe) setOVf(p != (int) p);
+                if (rc) cr0(p);
+                break;
+            }
+            case 247: { long e = eaX(ra, rb); doStore(1, s, e); w(ra, e); break; } // stbux
+            case 266: arith(rd, a, b, 0, false, oe, rc); break;          // add
+            case 279: doLoad(2, false, rd, eaX(ra, rb)); break;          // lhzx
+            case 284: { long v = ~(s ^ b); w(ra, v); if (rc) cr0(v); break; }   // eqv
+            case 311: { long e = eaX(ra, rb); doLoad(2, false, rd, e); w(ra, e); break; } // lhzux
+            case 316: { long v = s ^ b; w(ra, v); if (rc) cr0(v); break; }      // xor
+            case 339: // mfspr
+            case 371: // mftb
+                w(rd, getSPR(((insn >>> 16) & 31) | (((insn >>> 11) & 31) << 5)));
+                break;
+            case 341: doLoad(4, true, rd, eaX(ra, rb)); break;           // lwax
+            case 343: doLoad(2, true, rd, eaX(ra, rb)); break;           // lhax
+            case 373: { long e = eaX(ra, rb); doLoad(4, true, rd, e); w(ra, e); break; } // lwaux
+            case 375: { long e = eaX(ra, rb); doLoad(2, true, rd, e); w(ra, e); break; } // lhaux
+            case 407: doStore(2, s, eaX(ra, rb)); break;                 // sthx
+            case 412: { long v = s | ~b; w(ra, v); if (rc) cr0(v); break; }     // orc
+            case 826: case 827: { // sradi (xo de 10 bits: 826/827 según el bit sh5)
+                int sh = ((insn >>> 11) & 31) | ((insn & 2) << 4);
+                long v = s >> sh;
+                setCAf(s < 0 && sh != 0 && (s & ((1L << sh) - 1)) != 0);
+                w(ra, v);
+                if (rc) cr0(v);
+                break;
+            }
+            case 439: { long e = eaX(ra, rb); doStore(2, s, e); w(ra, e); break; } // sthux
+            case 444: { long v = s | b; w(ra, v); if (rc) cr0(v); break; }      // or
+            case 457: { // divdu
+                long v = b == 0 ? 0 : Long.divideUnsigned(a, b);
+                w(rd, v);
+                if (oe) setOVf(b == 0);
+                if (rc) cr0(v);
+                break;
+            }
+            case 459: { // divwu
+                long v = (int) b == 0 ? 0 : Integer.divideUnsigned((int) a, (int) b) & M32;
+                w(rd, v);
+                if (oe) setOVf((int) b == 0);
+                if (rc) cr0(v);
+                break;
+            }
+            case 467: // mtspr
+                setSPR(((insn >>> 16) & 31) | (((insn >>> 11) & 31) << 5), s);
+                break;
+            case 476: { long v = ~(s & b); w(ra, v); if (rc) cr0(v); break; }   // nand
+            case 489: { // divd
+                boolean bad = b == 0 || (a == Long.MIN_VALUE && b == -1);
+                long v = bad ? 0 : a / b;
+                w(rd, v);
+                if (oe) setOVf(bad);
+                if (rc) cr0(v);
+                break;
+            }
+            case 491: { // divw
+                boolean bad = (int) b == 0 || ((int) a == Integer.MIN_VALUE && (int) b == -1);
+                long v = bad ? 0 : (int) a / (int) b;
+                w(rd, v);
+                if (oe) setOVf(bad);
+                if (rc) cr0(v);
+                break;
+            }
+            case 534: { long v = Integer.reverseBytes((int) readMemoryWord(eaX(ra, rb))) & M32; w(rd, v); break; } // lwbrx
+            case 535: fpr[rd] = (double) Float.intBitsToFloat((int) readMemoryWord(eaX(ra, rb))); break;      // lfsx
+            case 536: { long v = (b & 63) >= 32 ? 0 : (s & M32) >>> (int) (b & 63); w(ra, v); if (rc) cr0(v); break; } // srw
+            case 539: { long v = (b & 127) >= 64 ? 0 : s >>> (int) (b & 63); w(ra, v); if (rc) cr0(v); break; } // srd
+            case 567: { long e = eaX(ra, rb); fpr[rd] = (double) Float.intBitsToFloat((int) readMemoryWord(e)); w(ra, e); break; } // lfsux
+            case 599: fpr[rd] = Double.longBitsToDouble(readMemoryDouble(eaX(ra, rb))); break;               // lfdx
+            case 631: { long e = eaX(ra, rb); fpr[rd] = Double.longBitsToDouble(readMemoryDouble(e)); w(ra, e); break; } // lfdux
+            case 662: doStore(4, Integer.reverseBytes((int) s) & M32, eaX(ra, rb)); break;                  // stwbrx
+            case 663: writeMemoryWord(eaX(ra, rb), Float.floatToRawIntBits((float) fpr[rd]) & M32); break;  // stfsx
+            case 695: { long e = eaX(ra, rb); writeMemoryWord(e, Float.floatToRawIntBits((float) fpr[rd]) & M32); w(ra, e); break; } // stfsux
+            case 727: writeMemoryDouble(eaX(ra, rb), Double.doubleToRawLongBits(fpr[rd])); break;            // stfdx
+            case 759: { long e = eaX(ra, rb); writeMemoryDouble(e, Double.doubleToRawLongBits(fpr[rd])); w(ra, e); break; } // stfdux
+            case 790: { long h = readMemoryHalf(eaX(ra, rb)) & 0xFFFF; w(rd, (Integer.reverseBytes((int) h) >>> 16) & 0xFFFF); break; } // lhbrx
+            case 792: { // sraw
+                int sh = (int) (b & 63);
+                int si = (int) s;
+                long v = sh >= 32 ? (si < 0 ? -1L : 0L) : (long) (si >> sh);
+                setCAf(si < 0 && (sh >= 32 || (si & ((1 << sh) - 1)) != 0));
+                w(ra, v);
+                if (rc) cr0(v);
+                break;
+            }
+            case 794: { // srad
+                int sh = (int) (b & 127);
+                long v;
+                boolean ca;
+                if (sh >= 64) {
+                    v = s < 0 ? -1L : 0L;
+                    ca = s < 0;
+                } else {
+                    v = s >> sh;
+                    ca = s < 0 && sh != 0 && (s & ((1L << sh) - 1)) != 0;
+                }
+                setCAf(ca);
+                w(ra, v);
+                if (rc) cr0(v);
+                break;
+            }
+            case 824: { // srawi
+                int sh = (insn >>> 11) & 31;
+                int si = (int) s;
+                long v = (long) (si >> sh);
+                setCAf(si < 0 && sh != 0 && (si & ((1 << sh) - 1)) != 0);
+                w(ra, v);
+                if (rc) cr0(v);
+                break;
+            }
+            case 918: doStore(2, Integer.reverseBytes((int) s) >>> 16, eaX(ra, rb)); break;     // sthbrx
+            case 922: { long v = (short) s; w(ra, v); if (rc) cr0(v); break; }  // extsh
+            case 954: { long v = (byte) s; w(ra, v); if (rc) cr0(v); break; }   // extsb
+            case 986: { long v = (int) s; w(ra, v); if (rc) cr0(v); break; }    // extsw
+            case 983: writeMemoryWord(eaX(ra, rb), Double.doubleToRawLongBits(fpr[rd]) & M32); break; // stfiwx
+            case 1014: { // dcbz (línea de 32 bytes)
+                long e = eaX(ra, rb) & ~31L;
+                for (int i = 0; i < 32; i += 4) {
+                    writeMemoryWord(e + i, 0);
+                }
+                break;
+            }
+            default:
+                illegal(insn);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Punto flotante (opcodes 59 = simple, 63 = doble). FPR = double.
+    // ------------------------------------------------------------------
+    private void fpCompare(int crf, double a, double b) {
+        int f;
+        if (Double.isNaN(a) || Double.isNaN(b)) {
+            f = 1;
+        } else if (a < b) {
+            f = 8;
+        } else if (a > b) {
+            f = 4;
+        } else {
+            f = 2;
+        }
+        crSetField(crf, f);
+        fpscr = (fpscr & ~0x0000F000L) | ((long) f << 12);
+    }
+
+    private static final int FPSCR_RN_MASK = 3;
+
+    private double roundByMode(double v) {
+        switch ((int) (fpscr & FPSCR_RN_MASK)) {
+            case 1: return v < 0 ? Math.ceil(v) : Math.floor(v);   // hacia cero
+            case 2: return Math.ceil(v);
+            case 3: return Math.floor(v);
+            default: return Math.rint(v);
+        }
+    }
+
+    private void execFP(int insn, boolean single) {
+        final int frd = (insn >>> 21) & 31, fra = (insn >>> 16) & 31, frb = (insn >>> 11) & 31, frc = (insn >>> 6) & 31;
+        final boolean rc = (insn & 1) != 0;
+        final int xo5 = (insn >>> 1) & 0x1F;
+        double a = fpr[fra], b = fpr[frb], c = fpr[frc], res;
+        switch (xo5) {
+            case 18: res = a / b; break;                                  // fdiv(s)
+            case 20: res = a - b; break;                                  // fsub(s)
+            case 21: res = a + b; break;                                  // fadd(s)
+            case 22: res = Math.sqrt(b); break;                           // fsqrt(s)
+            case 23:                                                       // fsel
+                if (!single) {
+                    fpr[frd] = (a >= 0.0 || a == -0.0) && !Double.isNaN(a) ? c : b;
+                    if (rc) crSetField(1, (int) ((fpscr >>> 28) & 0xF));
+                    return;
+                }
+                illegal(insn);
+                return;
+            case 24: res = 1.0 / b; break;                                // fres
+            case 25: res = a * c; break;                                  // fmul(s)
+            case 26: res = 1.0 / Math.sqrt(b); break;                     // frsqrte
+            case 28: res = Math.fma(a, c, -b); break;                     // fmsub(s)
+            case 29: res = Math.fma(a, c, b); break;                      // fmadd(s)
+            case 30: res = -Math.fma(a, c, -b); break;                    // fnmsub(s)
+            case 31: res = -Math.fma(a, c, b); break;                     // fnmadd(s)
+            default:
+                if (single) {
+                    if (((insn >>> 1) & 0x3FF) == 846) { // fcfids
+                        fpr[frd] = sd((double) Double.doubleToRawLongBits(b));
+                        return;
+                    }
+                    illegal(insn);
+                    return;
+                }
+                execFPX(insn, frd, fra, frb, rc);
+                return;
+        }
+        fpr[frd] = single ? sd(res) : res;
+        if (rc) crSetField(1, (int) ((fpscr >>> 28) & 0xF));
+    }
+
+    private void execFPX(int insn, int frd, int fra, int frb, boolean rc) {
+        int xo = (insn >>> 1) & 0x3FF;
+        double b = fpr[frb];
+        switch (xo) {
+            case 0: fpCompare((insn >>> 23) & 7, fpr[fra], b); break;     // fcmpu
+            case 32: fpCompare((insn >>> 23) & 7, fpr[fra], b); break;    // fcmpo
+            case 12: fpr[frd] = sd(b); break;                              // frsp
+            case 14: case 15: {                                            // fctiw / fctiwz
+                double v = xo == 15 ? (b < 0 ? Math.ceil(b) : Math.floor(b)) : roundByMode(b);
+                int iv = Double.isNaN(v) ? Integer.MIN_VALUE : (v >= 2147483647.0 ? Integer.MAX_VALUE
+                        : (v <= -2147483648.0 ? Integer.MIN_VALUE : (int) v));
+                fpr[frd] = Double.longBitsToDouble(0xFFF8000000000000L | (iv & M32));
+                break;
+            }
+            case 814: case 815: {                                          // fctid / fctidz
+                double v = xo == 815 ? (b < 0 ? Math.ceil(b) : Math.floor(b)) : roundByMode(b);
+                long lv = Double.isNaN(v) ? Long.MIN_VALUE : (long) v;
+                fpr[frd] = Double.longBitsToDouble(lv);
+                break;
+            }
+            case 846: fpr[frd] = (double) Double.doubleToRawLongBits(b); break; // fcfid
+            case 40: fpr[frd] = -b; break;                                 // fneg
+            case 72: fpr[frd] = b; break;                                  // fmr
+            case 136: fpr[frd] = -Math.abs(b); break;                      // fnabs
+            case 264: fpr[frd] = Math.abs(b); break;                       // fabs
+            case 583: fpr[frd] = Double.longBitsToDouble(fpscr & M32); break; // mffs
+            case 711: {                                                    // mtfsf
+                int fm = (insn >>> 17) & 0xFF;
+                long v = Double.doubleToRawLongBits(b) & M32;
+                for (int i = 0; i < 8; i++) {
+                    if ((fm & (0x80 >> i)) != 0) {
+                        long m = 0xFL << ((7 - i) * 4);
+                        fpscr = (fpscr & ~m) | (v & m);
+                    }
+                }
+                break;
+            }
+            case 134: {                                                    // mtfsfi
+                int i = (insn >>> 23) & 7;
+                long v = (long) ((insn >>> 12) & 0xF) << ((7 - i) * 4);
+                fpscr = (fpscr & ~(0xFL << ((7 - i) * 4))) | v;
+                break;
+            }
+            case 38: fpscr |= 1L << (31 - ((insn >>> 21) & 31)); break;    // mtfsb1
+            case 70: fpscr &= ~(1L << (31 - ((insn >>> 21) & 31))); break; // mtfsb0
+            case 64: break;                                                // mcrfs
+            default: illegal(insn);
+        }
+        if (rc) crSetField(1, (int) ((fpscr >>> 28) & 0xF));
+    }
+
+    // ELFv1 (PPC64): una dirección dentro de .opd es un descriptor {entrada, TOC, entorno}.
+    // Algunos firmwares (p. ej. LK) hacen blr/bctr directamente a un descriptor; se resuelve aquí.
+    private long opdStart = 0, opdEnd = 0;
+    private boolean opdNoted = false;
+
+    public void setOpdRange(long start, long end) {
+        opdStart = start;
+        opdEnd = end;
+    }
+
+    /** Ejecuta una instrucción completa (fetch + execute + tick + interrupciones). */
+    public void step() {
+        if (opdEnd > opdStart && pc >= opdStart && pc < opdEnd) {
+            long target = readMemoryDouble(pc);
+            long toc = readMemoryDouble(pc + 8);
+            if (!opdNoted) {
+                opdNoted = true;
+                System.out.printf("[CPU] salto a descriptor .opd 0x%x -> 0x%x (TOC 0x%x)%n", pc, target, toc);
+            }
+            gpr[2] = toc;
+            pc = target & M32;
+        }
+        int insn = fetchInstruction();
+        if (haltOnSelfBranch && insn == 0x48000000) {
+            System.out.println("[CPU] Halt: 'b .' en PC=0x" + Long.toHexString(pc));
+            halted = true;
             return;
         }
+        execute(insn, null);
+        tick();
+        checkInterrupts();
+    }
 
-        srr0 = pc; // Save PC
-        srr1 = msr; // Save MSR
-        setMSRBit(MSR_EE, false); // Disable external interrupts
-        setMSRBit(MSR_IR, false); // Disable instruction address translation
-        setMSRBit(MSR_DR, false); // Disable data address translation
-        interruptMode = true;
-        pc = vector; // Jump to interrupt vector
+    /** Ejecuta hasta maxInstr instrucciones o hasta que la CPU se detenga. */
+    public long run(long maxInstr) {
+        long n = 0;
+        while (!halted && n < maxInstr) {
+            step();
+            n++;
+        }
+        return n;
+    }
+
+    public void run() {
+        run(Long.MAX_VALUE);
+    }
+
+    public void handleInterrupt(int vector) {
+        takeException(vector, pc, 0);
+        pc = nextPc & M32;
     }
 
     public void setMSRBit(int bit, boolean value) {
         if (value) {
             msr |= bit;
         } else {
-            msr &= ~bit;
+            msr &= ~(long) bit;
         }
     }
 
@@ -452,8 +1135,8 @@ public class CPU {
     }
 
     public void returnFromInterrupt() {
-        pc = srr0; // Restaurar PC
-        msr = srr1; // Restaurar MSR
+        pc = srr0 & M32; // Restaurar PC
+        msr = srr1 & M32; // Restaurar MSR
         interruptMode = false;
     }
 
@@ -466,13 +1149,13 @@ public class CPU {
     }
 
     public void tick() {
-        timeBase++; // Incrementar Time Base (64 bits)
-        TBU = (int) (timeBase >>> 32); // Parte alta
-        TBL = (int) (timeBase & 0xFFFFFFFF); // Parte baja
+        timeBase++; // Time Base (64 bits)
+        TBU = (int) (timeBase >>> 32);
+        TBL = (int) timeBase;
         if (dec > 0) {
             dec--;
-            if (dec == 0 && getMSRBit(MSR_EE)) {
-                handleInterrupt(0x900); // Interrupción de Decrementer
+            if (dec == 0) {
+                decPending = true;
             }
         }
     }
@@ -510,7 +1193,7 @@ public class CPU {
     }
 
     public void setCr(long cr) {
-        this.cr = cr;
+        this.cr = cr & M32;
     }
 
     public long getLr() {
@@ -522,11 +1205,11 @@ public class CPU {
     }
 
     public int getCtr() {
-        return ctr;
+        return (int) ctr;
     }
 
     public void setCtr(long ctr) {
-        this.ctr = (int) ctr;
+        this.ctr = ctr;
     }
 
     public long getXer() {
@@ -534,7 +1217,7 @@ public class CPU {
     }
 
     public void setXer(long xer) {
-        this.xer = xer;
+        this.xer = xer & M32;
     }
 
     public long getPc() {
@@ -542,7 +1225,7 @@ public class CPU {
     }
 
     public void setPc(long pc) {
-        this.pc = pc & 0xFFFFFFFFL;
+        this.pc = pc & M32;
         if (debugMode) {
             System.out.println("Set PC: 0x" + Long.toHexString(this.pc));
         }
@@ -738,7 +1421,7 @@ public class CPU {
                 crfValue |= 0x2; // EQ
             }
             // Copia bit SO desde XER
-            crfValue |= (xer & XER_SO) != 0 ? 0x1 : 0;
+            crfValue |= (xer & 0x80000000L) != 0 ? 0x1 : 0;
         }
 
         long shift = (7 - crf) * 4;
@@ -755,86 +1438,58 @@ public class CPU {
     // Establece bit Carry en XER
     public void setCA(boolean carry) {
         if (carry) {
-            xer |= XER_CA;
+            xer |= 0x20000000L;
         } else {
-            xer &= ~XER_CA;
+            xer &= ~0x20000000L;
         }
     }
 
     // Establece bits Overflow y Summary Overflow
     public void setOV(boolean overflow) {
         if (overflow) {
-            xer |= (XER_OV | XER_SO);
+            xer |= 0xC0000000L;
         } else {
-            xer &= ~XER_OV; // SO permanece activo hasta reset
+            xer &= ~0x40000000L; // SO permanece activo hasta reset
         }
     }
 
-    // Obtiene las instrucciones
+    // ---- Acceso a memoria: dirección efectiva -> MMU -> bus (sin pasar por la caché) ----
+    private long xlateData(long a, boolean write) {
+        return mmu.translateAddress(a & M32, write, false) & M32;
+    }
+
     public int fetchInstruction() {
-        int instruction = 0;
-        for (int i = 0; i < 4; i++) {
-            byte b = bus.read(pc + i);
-            instruction = (instruction << 8) | (b & 0xFF);
-        }
-        return instruction;
+        return bus.readWord(mmu.translateAddress(pc & M32, false, true) & M32);
     }
 
-    // Métodos de acceso a memoria modificados
     public byte readMemoryByte(long address) {
-        return bus.read(address);
+        return bus.read(xlateData(address, false));
     }
 
     public void writeMemoryByte(long address, byte value) {
-        bus.write(address, value);
+        bus.write(xlateData(address, true), value);
+    }
+
+    public int readMemoryHalf(long address) {
+        return bus.readHalf(xlateData(address, false));
+    }
+
+    public void writeMemoryHalf(long address, int value) {
+        bus.writeHalf(xlateData(address, true), value);
     }
 
     public long readMemoryWord(long address) {
-        long physAddress = mmu.translateAddress(address, false, false);
-        return cache.readWord(physAddress) & 0xFFFFFFFF;
+        return bus.readWord(xlateData(address, false)) & M32; // antes: máscara int -1 (no hacía nada)
     }
 
     public void writeMemoryWord(long address, long value) {
-        long physAddress = mmu.translateAddress(address, true, false);
-        cache.writeWord(physAddress, value);
-    }
-
-    public void run() {
-        int maxCycles = Integer.MAX_VALUE;
-        int cycle = 0;
-        while (cycle++ < maxCycles) {
-            tick();
-            int instruction = fetchInstruction();
-            long currentPc = getPc();
-            if (currentPc == 0x700 || currentPc == 0x704) {
-                System.out.println("Interrupt handler at PC=0x" + Long.toHexString(currentPc) + ", instruction=0x" + Integer.toHexString(instruction));
-            }
-            DecodingInstr.InstructionFields fields = DecodingInstr.decode(instruction);
-            System.out.println(DecodingInstr.decodeForLog(instruction));
-            //DecodingInstr.decodeVerbose(instruction, currentPc); // Optional for debug
-            try {
-                execute(instruction, fields);
-            } catch (Exception e) {
-                System.err.println("Error at PC=0x" + Long.toHexString(currentPc) + ": " + e.getMessage());
-                break;
-            }
-            checkInterrupts();
-        }
-        if (cycle >= maxCycles) {
-            System.err.println("Emulation halted: Max cycles reached");
-        }
+        bus.writeWord(xlateData(address, true), value);
     }
 
     public void checkInterrupts() {
-        if (getMSRBit(MSR_EE) && !interruptPending) { // Solo si interrupciones externas están habilitadas
-            if (dec == 0) {
-                interruptPending = true;
-                handleInterrupt(ExceptionHandler.EXCEPTION_SYSTEM_CALL); //0x900 Decrementer Interrupt
-            }
-            if (interruptPending) {
-                handleInterrupt(ExceptionHandler.EXCEPTION_ALIGNMENT); //0x500 External Interrupt
-            }
-            // añadir otras aquí
+        if (decPending && (msr & MSR_EE) != 0) {
+            decPending = false;
+            handleInterrupt(ExceptionHandler.EXCEPTION_DECREMENTER);
         }
     }
 
@@ -1109,6 +1764,11 @@ public class CPU {
         vr = new int[32][4];
         sr = new int[16];
         reserveAddress = -1;
+        halted = false;
+        decPending = false;
+        timeBase = 0;
+        dec = 0;
+        instructionCount = 0;
     }
 
     public void clearFPSCRBit(int crbD) {
