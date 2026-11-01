@@ -25,7 +25,6 @@ package pcp.cpu.Instruction;
 
 import pcp.cpu.CPU;
 import pcp.system.ExceptionHandler;
-import pcp.utils.Utilities;
 
 /**
  *
