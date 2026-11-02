@@ -56,7 +56,7 @@ public class PCP {
         long fbBase = -1;
         String input = null;
         long load = 0, max = 50_000_000L;
-        int w = 800, h = 600;
+        int w = 1280, h = 720;
         String png = "fb.png";
 
         for (int i = 0; i < args.length; i++) {
