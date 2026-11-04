@@ -157,3 +157,7 @@ Esta prueba valida que SFCX puede transferir los datos de la página lógica en 
 ## Milestone M7.8 — separación de etapas y diagnóstico SATA/ATAPI
 
 Se documenta la secuencia de dos etapas (splash XeLL Reloaded y stage 2 Auto-Dumper), y se incorpora un desensamblado de las rutinas ATA/ATAPI `0x8A64–0x8F20`. La condición `DRDY` del sondeo inicial y la espera posterior `DRQ` se tratan como estados separados. Las pruebas SATA/ATAPI y SFCX pasan; la ejecución completa de XeLL todavía no está demostrada. Ver `M7.8-REPORT.md`.
+
+## Milestone M8.0 — Xenon Core Compatibility Foundation
+
+M8.0 inicia la consolidación del núcleo con una prueba de regresión específica del bus: alias real-mode de RAM (`0x80000000 + X`), MMIO y endianness big-endian. Ejecuta `./run.sh test` para compilar y lanzar la suite. El alcance, límites técnicos y orden de trabajo están documentados en `M8.0-REPORT.md`.

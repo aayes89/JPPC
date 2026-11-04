@@ -26,6 +26,8 @@ run() {
     java -Xmx1g -cp "$CP" pcp.PCP "$@" 2>&1
 }
 
+check "Bus RAM alias + MMIO big-endian" \
+    "$(java -cp "$CP" pcp.TESTS.BusMappingSelfTest 2>&1)" "Bus mapping/alias/MMIO endian: ALL OK"
 check "SATA/ATAPI virtual DVD sin medio" \
     "$(java -Xmx1g -cp "$CP" pcp.TESTS.XenonSataSelfTest 2>&1)" "Xenon SATA/ATAPI: ALL OK"
 if [ -n "${JPPC_TEST_NAND:-}" ]; then

@@ -32,8 +32,6 @@ public class PCP {
 
     public static void main(String[] args) throws Exception {
         String path = "./src/pcp/TESTS/xenon.elf";
-        // fb_demo.bin - usar con 800x600
-        // xenon.elf - usar con 1024x768
         boolean elf = true, headless = false, trace = false, vram = false, mandel = false, busTrace = false;
         long fbBase = -1;
         String input = null;
@@ -41,7 +39,7 @@ public class PCP {
         int threads = -1;
         long tb = -1;
         long load = 0, max = 50_000_000L;
-        int w = 1280, h = 720;
+        int w = 1024, h = 768;
         String png = "fb.png";
         String consolePng = null;
         String nandPath = null;
