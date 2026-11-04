@@ -2,24 +2,6 @@
  * The MIT License
  *
  * Copyright 2025 Slam.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
  */
 package pcp.system;
 
@@ -41,8 +23,8 @@ public class Bus {
     private static class DeviceMapping {
 
         final Device device;
-        final long startAddress;
-        final long endAddress;
+        long startAddress;
+        long endAddress;
 
         DeviceMapping(Device device, long startAddress, long endAddress) {
             this.device = device;
@@ -55,6 +37,8 @@ public class Bus {
     private final Memory memory;
     private boolean traceUnmapped = false;
     private int unmappedLogged = 0;
+    private long traceStart = 0;
+    private long traceEnd = ADDR_MASK;
     private final java.util.Map<String, Integer> seen = new java.util.HashMap<>();
 
     /** Registra accesos a direcciones sin dispositivo fuera de la RAM (para descubrir el hardware que espera el firmware). */
@@ -62,8 +46,24 @@ public class Bus {
         traceUnmapped = t;
     }
 
+    /** Limita la traza MMIO a un rango inclusivo de direcciones físicas. */
+    public void setTraceRange(long start, long end) {
+        start &= ADDR_MASK;
+        end &= ADDR_MASK;
+        if (Long.compareUnsigned(start, end) > 0) {
+            throw new IllegalArgumentException("Rango de bus invertido");
+        }
+        traceStart = start;
+        traceEnd = end;
+    }
+
     private void logUnmapped(String kind, long address, long value) {
-        if (!traceUnmapped || unmappedLogged >= 200) {
+        if (!traceUnmapped || unmappedLogged >= 200
+                || Long.compareUnsigned(address, traceStart) < 0
+                || Long.compareUnsigned(address, traceEnd) > 0) {
+            return;
+        }
+        if (seen.size() > 4096) {
             return;
         }
         String key = kind + address;
@@ -71,8 +71,8 @@ public class Bus {
         if (n > 2) {
             return; // no repetir el mismo acceso (bucles de espera)
         }
-        boolean ramMirror = address >= 0x80000000L && address < 0xA0000000L;
-        if (address >= memory.getMemorySize() && !ramMirror) {
+        boolean ramMirror = (address >= 0x80000000L && address < 0xA0000000L) || (address >= 0x1C000000L && address < 0x1E000000L && kind.startsWith("escritura"));
+        if ((address >= memory.getMemorySize() && !(address >= 0x80000000L && address < 0xA0000000L)) || (address >= 0x1C000000L && address < 0x1E000000L && kind.startsWith("escritura"))) {
             unmappedLogged++;
             System.out.printf("[bus] %s no mapeado 0x%08x valor=0x%x%n", kind, address, value);
         }
@@ -84,6 +84,16 @@ public class Bus {
 
     public void attachDevice(Device device, long startAddress, long endAddress) {
         devices.add(new DeviceMapping(device, startAddress & ADDR_MASK, endAddress & ADDR_MASK));
+    }
+
+    /** Cambia la ventana de un dispositivo ya conectado (p. ej. el framebuffer cuando la GPU cambia su superficie). */
+    public void moveDevice(Device device, long startAddress, long endAddress) {
+        for (DeviceMapping m : devices) {
+            if (m.device == device) {
+                m.startAddress = startAddress & ADDR_MASK;
+                m.endAddress = endAddress & ADDR_MASK;
+            }
+        }
     }
 
     /** 0x80000000|dirección-física es el espejo "real mode" de la dirección física (< 512 MB). */
@@ -106,8 +116,9 @@ public class Bus {
         DeviceMapping m = find(address);
         if (m == null) {
             logUnmapped("lectura", address, 0);
+            return address < memory.getMemorySize() ? memory.read(address) : 0;
         }
-        return m != null ? m.device.read(address - m.startAddress) : memory.read(address);
+        return m.device.read(address - m.startAddress);
     }
 
     public void write(long address, byte value) {
@@ -117,7 +128,9 @@ public class Bus {
             m.device.write(address - m.startAddress, value);
         } else {
             logUnmapped("escritura", address, value & 0xFF);
-            memory.write(address, value);
+            if (address < memory.getMemorySize()) {
+                memory.write(address, value);
+            }
         }
     }
 
@@ -126,8 +139,9 @@ public class Bus {
         DeviceMapping m = find(address);
         if (m == null) {
             logUnmapped("lectura32", address, 0);
+            return address < memory.getMemorySize() ? memory.readMemoryWord(address) : 0;
         }
-        return m != null ? m.device.readWord(address - m.startAddress) : memory.readMemoryWord(address);
+        return m.device.readWord(address - m.startAddress);
     }
 
     public void writeWord(long address, long value) {
@@ -137,7 +151,9 @@ public class Bus {
             m.device.writeWord(address - m.startAddress, (int) value);
         } else {
             logUnmapped("escritura32", address, value & 0xFFFFFFFFL);
-            memory.writeMemoryWord(address, (int) value);
+            if (address < memory.getMemorySize()) {
+                memory.writeMemoryWord(address, (int) value);
+            }
         }
     }
 

@@ -1,26 +1,3 @@
-/*
- * The MIT License
- *
- * Copyright 2025 Slam.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- */
 package pcp;
 
 import java.io.File;
@@ -38,11 +15,15 @@ import pcp.gpu.FrameBufferPanel;
  *   --size WxH       resolución del framebuffer (por defecto 800x600)
  *   --headless       sin ventana: ejecuta, guarda PNG y termina
  *   --png salida.png archivo PNG en modo headless (por defecto fb.png)
+ *   --console-png salida.png captura UART como terminal de diagnóstico
+ *   --nand archivo.bin   imagen NAND Xenon small-block (solo lectura)
  *   --max N          máximo de instrucciones (headless; por defecto 50 millones)
  *   --trace          traza de instrucciones
  *   --vram           abre el visor de VRAM
  *   --fb 0xADDR      dirección del framebuffer (por defecto 0x10000000)
+ *   --threads N      hilos hardware (1..6; XeLL se detecta y usa 6)
  *   --bus            registra accesos a direcciones sin dispositivo
+ *   --bus-range A:B  limita --bus al rango hexadecimal inclusivo
  *   --input "texto"  escribe texto por el UART (\\n = Enter), p. ej. para el shell de LK
  *
  * @author Slam
@@ -50,14 +31,19 @@ import pcp.gpu.FrameBufferPanel;
 public class PCP {
 
     public static void main(String[] args) throws Exception {
-        String path = "./src/pcp/TESTS/lk.elf";//fb_demo.bin|lk.elf|triangle_fixed.bin
-        boolean elf = true, headless = false, trace = false, vram = false, mandel = true, pattern = false, busTrace = false;
-        int mandelbw = 0; // 0-color | 1-blanco y negro
+        String path = "./src/pcp/TESTS/xenon_min.elf";//fb_demo.bin
+        boolean elf = true, headless = false, trace = false, vram = false, mandel = false, busTrace = false;
         long fbBase = -1;
         String input = null;
+        java.util.List<Long> watchList = new java.util.ArrayList<>();
+        int threads = -1;
+        long tb = -1;
         long load = 0, max = 50_000_000L;
         int w = 1280, h = 720;
         String png = "fb.png";
+        String consolePng = null;
+        String nandPath = null;
+        long[] busRange = null;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -66,13 +52,24 @@ public class PCP {
                 case "--trace": trace = true; break;
                 case "--vram": vram = true; break;
                 case "--bus": busTrace = true; break;
+                case "--bus-range": {
+                    String[] r = args[++i].split(":", 2);
+                    if (r.length != 2) throw new IllegalArgumentException("--bus-range requiere INICIO:FIN");
+                    busRange = new long[]{Long.decode(r[0]), Long.decode(r[1])};
+                    busTrace = true;
+                    break;
+                }
+                case "--tb": tb = Long.parseLong(args[++i]); break;
+                case "--watch": watchList.add(Long.decode(args[++i])); break;
+                case "--threads": threads = Integer.parseInt(args[++i]); break;
                 case "--input": input = args[++i].replace("\\n", "\n"); break;
                 case "--fb": fbBase = Long.decode(args[++i]); break;
                 case "--mandelbrot": mandel = true; break;
-                case "--pattern": pattern = true; break;
                 case "--load": load = Long.decode(args[++i]); break;
                 case "--max": max = Long.parseLong(args[++i]); break;
                 case "--png": png = args[++i]; break;
+                case "--console-png": consolePng = args[++i]; break;
+                case "--nand": nandPath = args[++i]; break;
                 case "--size": {
                     String[] p = args[++i].toLowerCase().split("x");
                     w = Integer.parseInt(p[0]);
@@ -87,11 +84,23 @@ public class PCP {
         if (fbBase >= 0) {
             ppcs.setFbBase(fbBase);
         }
+        if (nandPath != null) ppcs.loadNand(java.nio.file.Paths.get(nandPath));
         ppcs.getBus().setTraceUnmapped(busTrace);
+        if (busRange != null) ppcs.getBus().setTraceRange(busRange[0], busRange[1]);
+        ppcs.setSprTrace(busTrace);
         if (elf) {
             ppcs.loadELF(path);
         } else {
             ppcs.loadBinary(path, load);
+        }
+        if (threads > 0) {
+            ppcs.setThreads(threads);
+        }
+        if (tb > 0) {
+            ppcs.setTb(tb);
+        }
+        for (long wa : watchList) {
+            ppcs.addWatch(wa);
         }
         ppcs.setTrace(trace);
         if (input != null) {
@@ -104,13 +113,22 @@ public class PCP {
         if (headless) {
             long n = ppcs.runBlocking(max);
             System.out.println();
+            int nz = 0;
+            for (int v : fb.getGpuTiledBuffer()) {
+                if (v != 0) nz++;
+            }
+            System.out.println("[headless] VRAM palabras no nulas: " + nz + " (base FB 0x" + Long.toHexString(ppcs.getFbBase()) + ")");
             fb.savePNG(new File(png));
+            if (consolePng != null) {
+                pcp.gpu.ConsoleSnapshot.save(new File(consolePng), ppcs.getConsole().getOutput(), w, h);
+                System.out.println("[headless] UART snapshot=" + consolePng);
+            }
             System.out.printf("[headless] %d instrucciones, PC=0x%x, halted=%b, PNG=%s%n",
                     ppcs.getCpu().getInstructionCount(), ppcs.getCpu().getPc(), ppcs.getCpu().isHalted(), png);
             return;
         }
 
-        final boolean fVram = vram, fMandel = mandel, fPattern = pattern;
+        final boolean fVram = vram, fMandel = mandel;
         SwingUtilities.invokeLater(() -> {
             JFrame frame = new JFrame("JPPC - PowerPC / framebuffer + consola UART");
             FrameBufferPanel panel = new FrameBufferPanel(fb.getWidth(), fb.getHeight(), fb.getFramebuffer());
@@ -154,13 +172,7 @@ public class PCP {
                 panel.repaint();
             }).start();
             if (fMandel) {
-                if(mandelbw == 0)                
-                    new ExamplesFB(fb).FillMandelbrotColor(50);
-                else
-                    new ExamplesFB(fb).FillMandelbrotBW(50);                
-            }
-            if(fPattern){
-                new ExamplesFB(fb).FillTestPattern();
+                new ExamplesFB(fb).FillMandelbrotColor(50);
             }
             if (fVram) {
                 fb.showVRAMViewer();

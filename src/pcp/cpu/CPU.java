@@ -200,6 +200,13 @@ public class CPU {
         return ra == 0 ? 0 : gpr[ra];
     }
 
+    private static final long MSR_SF = 0x8000000000000000L;
+
+    /** MSR[SF]: modo de 64 bits. Con SF=0 las comparaciones, CR0, acarreo/overflow y CTR usan 32 bits. */
+    private boolean sf() {
+        return (msr & MSR_SF) != 0;
+    }
+
     private int crBit(int bi) {
         return (int) ((cr >>> (31 - bi)) & 1);
     }
@@ -223,7 +230,7 @@ public class CPU {
     }
 
     private void cr0(long v) {
-        cmpCR(0, Long.signum(v));
+        cmpCR(0, sf() ? Long.signum(v) : Integer.signum((int) v));
     }
 
     private int caIn() {
@@ -258,6 +265,21 @@ public class CPU {
 
     /** rD = a + b + cin (64 bits) con carry/overflow/Rc opcionales. */
     private void arith(int rd, long a, long b, int cin, boolean setCA, boolean oe, boolean rc) {
+        if (!sf()) { // modo de 32 bits
+            long t = (a & M32) + (b & M32) + cin;
+            int r32 = (int) t;
+            w(rd, r32 & M32);
+            if (setCA) {
+                setCAf((t >>> 32) != 0);
+            }
+            if (oe) {
+                setOVf(((~((int) a ^ (int) b)) & ((int) a ^ r32)) < 0);
+            }
+            if (rc) {
+                cr0(r32);
+            }
+            return;
+        }
         long res = a + b + cin;
         w(rd, res);
         if (setCA) {
@@ -335,6 +357,46 @@ public class CPU {
         }
     }
 
+    private int pir = 0;
+
+    public void setPir(int p) {
+        pir = p;
+    }
+
+    public int getPir() {
+        return pir;
+    }
+
+    /** true entre un lwarx/ldarx y su stwcx./stdcx. (el planificador no debe cambiar de hilo ahí). */
+    public boolean hasReservation() {
+        return reserveAddress != -1;
+    }
+
+    private boolean sprTrace = false;
+    private final java.util.Set<String> sprSeen = new java.util.HashSet<>();
+
+    private final java.util.Set<Long> watchPcs = new java.util.HashSet<>();
+
+    /** Diagnóstico: imprime registros cada vez que el PC alcanza esta dirección (se compara con los 32 bits bajos). */
+    public void addWatchPc(long a) {
+        watchPcs.add(a & 0xFFFFFFFFL & 0x1FFFFFFFL);
+    }
+
+    private void watchDump() {
+        System.out.printf("[watch] hilo %d PC=0x%x LR=0x%x CTR=0x%x r1=0x%x r3=0x%x r4=0x%x r5=0x%x r6=0x%x r7=0x%x%n",
+                pir, pc, lr, ctr, gpr[1], gpr[3], gpr[4], gpr[5], gpr[6], gpr[7]);
+    }
+
+    public void setSprTrace(boolean t) {
+        sprTrace = t;
+    }
+
+    private void sprLog(String k, int spr, long v) {
+        if (sprTrace && sprSeen.add(k + spr + ":" + Long.toHexString(v))) {
+            System.out.printf("[spr] %s SPR %d (0x%x) valor=0x%x pc=0x%x%n", k, spr, spr, v, pc);
+        }
+    }
+
     private long getSPR(int spr) {
         switch (spr) {
             case 1: return xer;
@@ -353,8 +415,10 @@ public class CPU {
             case 274: return sprg2 & M32;
             case 275: return sprg3 & M32;
             case 287: return pvr & M32;
-            case 1023: return 0; // PIR (procesador 0)
-            default: return spr >= 0 && spr < sprOther.length ? sprOther[spr] : 0;
+            case 1023: return pir; // PIR: índice del hilo hardware
+            default:
+                sprLog("mfspr", spr, spr >= 0 && spr < sprOther.length ? sprOther[spr] : 0);
+                return spr >= 0 && spr < sprOther.length ? sprOther[spr] : 0;
         }
     }
 
@@ -376,6 +440,7 @@ public class CPU {
             case 284: timeBase = (timeBase & ~M32) | (v & M32); break;
             case 285: timeBase = (timeBase & M32) | (v << 32); break;
             default:
+                sprLog("mtspr", spr, v);
                 if (spr >= 0 && spr < sprOther.length) {
                     sprOther[spr] = v; // HID*, HRMOR, LPCR, BATs...: se guardan sin efecto
                 }
@@ -388,7 +453,8 @@ public class CPU {
         if ((bo & 4) == 0) {
             ctr--;
         }
-        boolean ctrOk = (bo & 4) != 0 || ((ctr != 0) ^ ((bo & 2) != 0));
+        boolean ctrZero = sf() ? ctr == 0 : (int) ctr == 0;
+        boolean ctrOk = (bo & 4) != 0 || (!ctrZero ^ ((bo & 2) != 0));
         boolean condOk = (bo & 16) != 0 || (crBit(bi) == ((bo & 8) != 0 ? 1 : 0));
         long target;
         if (kind == 0) {
@@ -458,16 +524,12 @@ public class CPU {
                 case 7: // mulli
                     w(rd, r(ra) * simm);
                     break;
-                case 8: { // subfic: rD = SI - rA
-                    long a = ~r(ra);
-                    long res = a + simm + 1;
-                    w(rd, res);
-                    setCAf(Long.compareUnsigned(res, a) <= 0);
+                case 8: // subfic: rD = SI - rA
+                    arith(rd, ~r(ra), simm, 1, true, false, false);
                     break;
-                }
                 case 10: { // cmpli
                     int crf = (insn >>> 23) & 7;
-                    if ((insn & 0x00200000) != 0) {
+                    if ((insn & 0x00200000) != 0 && sf()) {
                         cmpCR(crf, Long.compareUnsigned(r(ra), uimm));
                     } else {
                         cmpCR(crf, Integer.compareUnsigned((int) r(ra), (int) uimm));
@@ -476,7 +538,7 @@ public class CPU {
                 }
                 case 11: { // cmpi
                     int crf = (insn >>> 23) & 7;
-                    if ((insn & 0x00200000) != 0) {
+                    if ((insn & 0x00200000) != 0 && sf()) {
                         cmpCR(crf, Long.compare(r(ra), simm));
                     } else {
                         cmpCR(crf, Integer.compare((int) r(ra), (int) simm));
@@ -484,16 +546,9 @@ public class CPU {
                     break;
                 }
                 case 12: // addic
-                case 13: { // addic.
-                    long a = r(ra);
-                    long res = a + simm;
-                    w(rd, res);
-                    setCAf(Long.compareUnsigned(res, a) < 0);
-                    if (op == 13) {
-                        cr0(res);
-                    }
+                case 13: // addic.
+                    arith(rd, r(ra), simm, 0, true, false, op == 13);
                     break;
-                }
                 case 14: // addi / li
                     w(rd, ra0(ra) + simm);
                     break;
@@ -644,17 +699,13 @@ public class CPU {
                 case 63:
                     execFP(insn, false);
                     break;
-                case 4: {
-                    DecodingInstr.InstructionFields f = fields != null ? fields : DecodingInstr.decode(insn);
-                    if (f.xo() >= 512) {
-                        spe.execute(f);
-                    } else {
-                        gfx.execute(f);
+                case 4: // AltiVec
+                    if (!execAltivec(insn)) {
+                        illegal(insn);
                     }
                     break;
-                }
-                case 5: case 6:
-                    vector.execute(fields != null ? fields : DecodingInstr.decode(insn)); // sin auditar
+                case 5: case 6: // VMX128 del Xenon: no implementado
+                    illegal(insn);
                     break;
                 default:
                     illegal(insn);
@@ -667,6 +718,256 @@ public class CPU {
         }
         pc = nextPc & M32;
         instructionCount++;
+    }
+
+
+    // ------------------------------------------------------------------
+    // AltiVec / VMX (opcode 4 y cargas/almacenes del opcode 31).
+    // 32 registros de 128 bits; vreg[4*n + k] = palabra k (0 = la más significativa, big-endian).
+    // VMX128 (Xenon, opcodes 5/6 y variantes de 128 registros) NO está implementado.
+    // ------------------------------------------------------------------
+    private final int[] vreg = new int[128];
+
+    public int[] getVectorRegs128() {
+        return vreg;
+    }
+
+    private byte[] vbytes(int r) {
+        byte[] b = new byte[16];
+        for (int k = 0; k < 4; k++) {
+            int w = vreg[4 * r + k];
+            b[4 * k] = (byte) (w >>> 24);
+            b[4 * k + 1] = (byte) (w >>> 16);
+            b[4 * k + 2] = (byte) (w >>> 8);
+            b[4 * k + 3] = (byte) w;
+        }
+        return b;
+    }
+
+    private void vsetBytes(int r, byte[] b) {
+        for (int k = 0; k < 4; k++) {
+            vreg[4 * r + k] = ((b[4 * k] & 0xFF) << 24) | ((b[4 * k + 1] & 0xFF) << 16)
+                    | ((b[4 * k + 2] & 0xFF) << 8) | (b[4 * k + 3] & 0xFF);
+        }
+    }
+
+    private float vf(int r, int k) {
+        return Float.intBitsToFloat(vreg[4 * r + k]);
+    }
+
+    private void vsetf(int r, int k, float v) {
+        vreg[4 * r + k] = Float.floatToRawIntBits(v);
+    }
+
+    /** Cargas/almacenes vectoriales del opcode 31. Devuelve false si no es una de ellas. */
+    private boolean execVectorMem(int key, int rd, int ra, int rb) {
+        long e = eaX(ra, rb);
+        switch (key) {
+            case 103: case 359: { // lvx / lvxl
+                long a = e & ~15L;
+                byte[] b = new byte[16];
+                for (int i = 0; i < 16; i++) b[i] = readMemoryByte(a + i);
+                vsetBytes(rd, b);
+                return true;
+            }
+            case 231: case 487: { // stvx / stvxl
+                long a = e & ~15L;
+                byte[] b = vbytes(rd);
+                for (int i = 0; i < 16; i++) writeMemoryByte(a + i, b[i]);
+                return true;
+            }
+            case 6: case 38: { // lvsl / lvsr
+                int sh = (int) (e & 15);
+                byte[] b = new byte[16];
+                for (int i = 0; i < 16; i++) b[i] = (byte) (key == 6 ? sh + i : 16 - sh + i);
+                vsetBytes(rd, b);
+                return true;
+            }
+            case 71: { // lvewx
+                int k = (int) ((e & 15) >> 2);
+                vreg[4 * rd + k] = (int) readMemoryWord(e & ~3L);
+                return true;
+            }
+            case 199: { // stvewx
+                int k = (int) ((e & 15) >> 2);
+                writeMemoryWord(e & ~3L, vreg[4 * rd + k] & M32);
+                return true;
+            }
+            case 519: case 775: { // lvlx / lvlxl (Xenon): bytes desde EA hasta el final del bloque, a la izquierda
+                int n = 16 - (int) (e & 15);
+                byte[] b = new byte[16];
+                for (int i = 0; i < n; i++) b[i] = readMemoryByte(e + i);
+                vsetBytes(rd, b);
+                return true;
+            }
+            case 551: case 807: { // lvrx / lvrxl: bytes anteriores a EA en el bloque, a la derecha
+                int n = (int) (e & 15);
+                byte[] b = new byte[16];
+                for (int i = 0; i < n; i++) b[16 - n + i] = readMemoryByte((e & ~15L) + i);
+                vsetBytes(rd, b);
+                return true;
+            }
+            case 647: case 903: { // stvlx / stvlxl
+                int n = 16 - (int) (e & 15);
+                byte[] b = vbytes(rd);
+                for (int i = 0; i < n; i++) writeMemoryByte(e + i, b[i]);
+                return true;
+            }
+            case 679: case 935: { // stvrx / stvrxl
+                int n = (int) (e & 15);
+                byte[] b = vbytes(rd);
+                for (int i = 0; i < n; i++) writeMemoryByte((e & ~15L) + i, b[16 - n + i]);
+                return true;
+            }
+            case 342: case 374: case 822: case 566 + 1000: // dst/dstt/dss: sin efecto
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /** Opcode 4 (AltiVec). Devuelve false si la instrucción no está implementada. */
+    private boolean execAltivec(int insn) {
+        final int vd = (insn >>> 21) & 31, va = (insn >>> 16) & 31, vb = (insn >>> 11) & 31, vc = (insn >>> 6) & 31;
+        final int va6 = insn & 0x3F;
+        switch (va6) { // formato VA
+            case 43: { // vperm
+                byte[] a = vbytes(va), b = vbytes(vb), c = vbytes(vc), o = new byte[16];
+                for (int i = 0; i < 16; i++) {
+                    int idx = c[i] & 31;
+                    o[i] = idx < 16 ? a[idx] : b[idx - 16];
+                }
+                vsetBytes(vd, o);
+                return true;
+            }
+            case 42: // vsel
+                for (int k = 0; k < 4; k++) {
+                    vreg[4 * vd + k] = (vreg[4 * va + k] & ~vreg[4 * vc + k]) | (vreg[4 * vb + k] & vreg[4 * vc + k]);
+                }
+                return true;
+            case 44: { // vsldoi
+                byte[] a = vbytes(va), b = vbytes(vb), o = new byte[16];
+                int sh = (insn >>> 6) & 15;
+                for (int i = 0; i < 16; i++) {
+                    int idx = sh + i;
+                    o[i] = idx < 16 ? a[idx] : b[idx - 16];
+                }
+                vsetBytes(vd, o);
+                return true;
+            }
+            case 46: // vmaddfp vD = vA*vC + vB
+                for (int k = 0; k < 4; k++) vsetf(vd, k, Math.fma(vf(va, k), vf(vc, k), vf(vb, k)));
+                return true;
+            case 47: // vnmsubfp vD = -(vA*vC - vB)
+                for (int k = 0; k < 4; k++) vsetf(vd, k, -Math.fma(vf(va, k), vf(vc, k), -vf(vb, k)));
+                return true;
+            default:
+                break;
+        }
+        int xo = insn & 0x7FF;
+        switch (xo) {
+            case 0: case 64: case 128: case 1024: case 1088: case 1152: { // vaddu?m / vsubu?m
+                boolean sub = xo >= 1024;
+                int size = (xo & 0x3FF) == 0 ? 1 : ((xo & 0x3FF) == 64 ? 2 : 4);
+                byte[] a = vbytes(va), b = vbytes(vb), o = new byte[16];
+                for (int i = 0; i < 16; i += size) {
+                    long x = 0, y = 0;
+                    for (int j = 0; j < size; j++) {
+                        x = (x << 8) | (a[i + j] & 0xFF);
+                        y = (y << 8) | (b[i + j] & 0xFF);
+                    }
+                    long r = sub ? x - y : x + y;
+                    for (int j = size - 1; j >= 0; j--) {
+                        o[i + j] = (byte) r;
+                        r >>= 8;
+                    }
+                }
+                vsetBytes(vd, o);
+                return true;
+            }
+            case 1028: case 1092: case 1156: case 1220: case 1284: // vand vandc vor vxor vnor
+                for (int k = 0; k < 4; k++) {
+                    int x = vreg[4 * va + k], y = vreg[4 * vb + k], r;
+                    switch (xo) {
+                        case 1028: r = x & y; break;
+                        case 1092: r = x & ~y; break;
+                        case 1156: r = x | y; break;
+                        case 1220: r = x ^ y; break;
+                        default: r = ~(x | y);
+                    }
+                    vreg[4 * vd + k] = r;
+                }
+                return true;
+            case 10: case 74: // vaddfp / vsubfp
+                for (int k = 0; k < 4; k++) vsetf(vd, k, xo == 10 ? vf(va, k) + vf(vb, k) : vf(va, k) - vf(vb, k));
+                return true;
+            case 524: case 588: case 652: { // vspltb / vsplth / vspltw
+                int size = xo == 524 ? 1 : (xo == 588 ? 2 : 4);
+                int idx = va & (16 / size - 1);
+                byte[] b = vbytes(vb), o = new byte[16];
+                for (int i = 0; i < 16; i++) o[i] = b[idx * size + (i % size)];
+                vsetBytes(vd, o);
+                return true;
+            }
+            case 780: case 844: case 908: { // vspltisb / vspltish / vspltisw
+                int simm = (va << 27) >> 27;
+                int size = xo == 780 ? 1 : (xo == 844 ? 2 : 4);
+                byte[] o = new byte[16];
+                for (int i = 0; i < 16; i++) {
+                    int sh = 8 * (size - 1 - (i % size));
+                    o[i] = (byte) (sh >= 32 ? (simm >> 31) : (simm >> sh));
+                }
+                vsetBytes(vd, o);
+                return true;
+            }
+            case 12: case 76: case 140: case 268: case 332: case 396: { // vmrgh*/vmrgl*
+                int size = (xo & 0xFF) == 12 ? 1 : ((xo & 0xFF) == 76 ? 2 : 4);
+                boolean low = xo >= 268;
+                byte[] a = vbytes(va), b = vbytes(vb), o = new byte[16];
+                int base = low ? 8 : 0;
+                for (int i = 0; i < 8 / size; i++) {
+                    for (int j = 0; j < size; j++) {
+                        o[(2 * i) * size + j] = a[base + i * size + j];
+                        o[(2 * i + 1) * size + j] = b[base + i * size + j];
+                    }
+                }
+                vsetBytes(vd, o);
+                return true;
+            }
+            case 388: case 644: case 900: // vslw / vsrw / vsraw
+                for (int k = 0; k < 4; k++) {
+                    int sh = vreg[4 * vb + k] & 31, x = vreg[4 * va + k];
+                    vreg[4 * vd + k] = xo == 388 ? x << sh : (xo == 644 ? x >>> sh : x >> sh);
+                }
+                return true;
+            case 1540: // mfvscr
+                for (int k = 0; k < 4; k++) vreg[4 * vd + k] = 0;
+                return true;
+            case 1604: // mtvscr
+                return true;
+            default:
+                break;
+        }
+        // vcmpequb/h/w (+ Rc en el bit 10)
+        int cx = xo & 0x3FF;
+        if (cx == 6 || cx == 70 || cx == 134) {
+            int size = cx == 6 ? 1 : (cx == 70 ? 2 : 4);
+            byte[] a = vbytes(va), b = vbytes(vb), o = new byte[16];
+            boolean all = true, none = true;
+            for (int i = 0; i < 16; i += size) {
+                boolean eq = true;
+                for (int j = 0; j < size; j++) eq &= a[i + j] == b[i + j];
+                for (int j = 0; j < size; j++) o[i + j] = (byte) (eq ? 0xFF : 0);
+                all &= eq;
+                none &= !eq;
+            }
+            vsetBytes(vd, o);
+            if ((xo & 0x400) != 0) {
+                crSetField(6, (all ? 8 : 0) | (none ? 2 : 0));
+            }
+            return true;
+        }
+        return false;
     }
 
     /** Opcode 30: rotaciones de 64 bits (MD y MDS). */
@@ -712,11 +1013,11 @@ public class CPU {
         long a = r(ra), b = r(rb), s = r(rd);
         switch (key) {
             case 0: // cmp
-                if ((insn & 0x00200000) != 0) cmpCR((insn >>> 23) & 7, Long.compare(a, b));
+                if ((insn & 0x00200000) != 0 && sf()) cmpCR((insn >>> 23) & 7, Long.compare(a, b));
                 else cmpCR((insn >>> 23) & 7, Integer.compare((int) a, (int) b));
                 break;
             case 32: // cmpl
-                if ((insn & 0x00200000) != 0) cmpCR((insn >>> 23) & 7, Long.compareUnsigned(a, b));
+                if ((insn & 0x00200000) != 0 && sf()) cmpCR((insn >>> 23) & 7, Long.compareUnsigned(a, b));
                 else cmpCR((insn >>> 23) & 7, Integer.compareUnsigned((int) a, (int) b));
                 break;
             case 4: // tw
@@ -756,7 +1057,7 @@ public class CPU {
             case 53: { long e = eaX(ra, rb); doLoad(8, false, rd, e); w(ra, e); break; } // ldux
             case 54: case 86: case 246: case 278: case 982: case 598: case 854: case 470:
             case 306: case 566: case 498: case 434: case 402: case 370: case 595: case 659:
-            case 210: case 242: case 307: case 886:
+            case 210: case 242: case 307: case 886: case 274: case 466: case 851: case 82: case 978:
                 break; // dcbst/dcbf/dcbtst/dcbt/icbi/sync/eieio/dcbi/tlbie/tlbsync/slb*/mtsr...: sin efecto
             case 55: { long e = eaX(ra, rb); doLoad(4, false, rd, e); w(ra, e); break; } // lwzux
             case 58: { long v = Long.numberOfLeadingZeros(s); w(ra, v); if (rc) cr0(v); break; } // cntlzd
@@ -937,9 +1238,47 @@ public class CPU {
             case 954: { long v = (byte) s; w(ra, v); if (rc) cr0(v); break; }   // extsb
             case 986: { long v = (int) s; w(ra, v); if (rc) cr0(v); break; }    // extsw
             case 983: writeMemoryWord(eaX(ra, rb), Double.doubleToRawLongBits(fpr[rd]) & M32); break; // stfiwx
-            case 1014: { // dcbz (línea de 32 bytes)
-                long e = eaX(ra, rb) & ~31L;
-                for (int i = 0; i < 32; i += 4) {
+            case 597: case 533: { // lswi / lswx: carga de cadena
+                long e = key == 597 ? ra0(ra) : eaX(ra, rb);
+                int n = key == 597 ? (rb == 0 ? 32 : rb) : (int) (xer & 0x7F);
+                int reg = rd;
+                int shift = 24;
+                long acc = 0;
+                for (int i = 0; i < n; i++) {
+                    if (i % 4 == 0) {
+                        acc = 0;
+                        shift = 24;
+                    }
+                    acc |= (long) (readMemoryByte(e + i) & 0xFF) << shift;
+                    shift -= 8;
+                    if (i % 4 == 3 || i == n - 1) {
+                        w(reg, acc);
+                        reg = (reg + 1) & 31;
+                    }
+                }
+                break;
+            }
+            case 725: case 661: { // stswi / stswx: almacena cadena
+                long e = key == 725 ? ra0(ra) : eaX(ra, rb);
+                int n = key == 725 ? (rb == 0 ? 32 : rb) : (int) (xer & 0x7F);
+                int reg = rd;
+                for (int i = 0; i < n; i++) {
+                    int sh = 24 - 8 * (i % 4);
+                    writeMemoryByte(e + i, (byte) (r(reg) >>> sh));
+                    if (i % 4 == 3) {
+                        reg = (reg + 1) & 31;
+                    }
+                }
+                break;
+            }
+            case 6: case 7: case 38: case 71: case 103: case 199: case 231: case 342: case 359: case 374:
+            case 487: case 519: case 551: case 647: case 679: case 775: case 807: case 822: case 903: case 935:
+                if (!execVectorMem(key, rd, ra, rb)) illegal(insn);
+                break;
+            case 1014: { // dcbz (32 bytes) / dcbz128 (rd=1, línea de 128 bytes del Xenon)
+                int line = rd == 1 ? 128 : 32;
+                long e = eaX(ra, rb) & ~(long) (line - 1);
+                for (int i = 0; i < line; i += 4) {
                     writeMemoryWord(e + i, 0);
                 }
                 break;
@@ -1075,6 +1414,14 @@ public class CPU {
     private long opdStart = 0, opdEnd = 0;
     private boolean opdNoted = false;
 
+    public long getOpdStart() {
+        return opdStart;
+    }
+
+    public long getOpdEnd() {
+        return opdEnd;
+    }
+
     public void setOpdRange(long start, long end) {
         opdStart = start;
         opdEnd = end;
@@ -1091,6 +1438,9 @@ public class CPU {
             }
             gpr[2] = toc;
             pc = target & M32;
+        }
+        if (!watchPcs.isEmpty() && watchPcs.contains(pc & 0x1FFFFFFFL)) {
+            watchDump();
         }
         int insn = fetchInstruction();
         if (haltOnSelfBranch && insn == 0x48000000) {
@@ -1148,12 +1498,20 @@ public class CPU {
         this.timeBase = value;
     }
 
+    private long tbIncrement = 1;
+
+    /** Ticks del time base por instrucción ejecutada (acelera los retardos basados en mftb). */
+    public void setTbIncrement(long n) {
+        tbIncrement = Math.max(1, n);
+    }
+
     public void tick() {
-        timeBase++; // Time Base (64 bits)
+        timeBase += tbIncrement; // Time Base (64 bits)
         TBU = (int) (timeBase >>> 32);
         TBL = (int) timeBase;
         if (dec > 0) {
             dec--;
+            dec = Math.max(0, dec - (int) Math.min(tbIncrement - 1, dec));
             if (dec == 0) {
                 decPending = true;
             }
@@ -1454,12 +1812,20 @@ public class CPU {
     }
 
     // ---- Acceso a memoria: dirección efectiva -> MMU -> bus (sin pasar por la caché) ----
+    // La MMU (BAT/páginas) está desactivada por defecto: los firmwares del Xenon (XeLL, LK) corren
+    // en modo real/hipervisor y sólo activan IR/DR de forma nominal.
+    private boolean mmuEnabled = false;
+
+    public void setMmuEnabled(boolean e) {
+        mmuEnabled = e;
+    }
+
     private long xlateData(long a, boolean write) {
-        return mmu.translateAddress(a & M32, write, false) & M32;
+        return mmuEnabled ? mmu.translateAddress(a & M32, write, false) & M32 : a & M32;
     }
 
     public int fetchInstruction() {
-        return bus.readWord(mmu.translateAddress(pc & M32, false, true) & M32);
+        return bus.readWord(mmuEnabled ? mmu.translateAddress(pc & M32, false, true) & M32 : pc & M32);
     }
 
     public byte readMemoryByte(long address) {

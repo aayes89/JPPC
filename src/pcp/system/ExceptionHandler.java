@@ -86,7 +86,7 @@ public class ExceptionHandler {
                 cpu.handleInterrupt(0x700);
                 //cpu.setPc(0x700);
                 break;
-                // Añadir otros casos cuando los necesite
+            // ... otros casos ...
         }
     }
 

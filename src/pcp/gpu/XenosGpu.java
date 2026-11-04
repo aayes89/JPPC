@@ -1,26 +1,3 @@
-/*
- * The MIT License
- *
- * Copyright 2025 Slam.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- */
 package pcp.gpu;
 
 /**
@@ -38,11 +15,31 @@ public class XenosGpu implements Device {
     public static final int SIZE = 0x100000;
     private final int[] regs = new int[SIZE / 4];
 
-    public XenosGpu(long fbPhysBase, int width, int height) {
-        regs[0x6110 / 4] = (int) fbPhysBase;
-        regs[0x6120 / 4] = width * 4;
-        regs[0x6134 / 4] = width;
-        regs[0x6138 / 4] = height;
+    private final boolean le;
+    private java.util.function.LongConsumer onSurface;
+
+    /** Se invoca con la dirección física cuando el firmware cambia D1GRPH_PRIMARY_SURFACE_ADDRESS (0x6110). */
+    public void setOnSurfaceChange(java.util.function.LongConsumer c) {
+        onSurface = c;
+    }
+
+    private int d(int v) {
+        return le ? Integer.reverseBytes(v) : v;
+    }
+
+    /**
+     * @param littleEndian true para drivers que usan read32n/write32n (XeLL/libxenon: lwbrx/stwbrx);
+     *                     LK lee los registros con lwz normal (big-endian).
+     */
+    public XenosGpu(long fbPhysBase, int width, int height, boolean littleEndian) {
+        this.le = littleEndian;
+        regs[0x6110 / 4] = d((int) fbPhysBase);
+        regs[0x6120 / 4] = d(width * 4);
+        regs[0x6134 / 4] = d(width);
+        regs[0x6138 / 4] = d(height);
+        regs[0x0244 / 4] = d(0x000C0011);   // xenos_init_phase1 espera este valor
+        regs[0x0210 / 4] = d(9);            // gpu_clock == 9
+        regs[0x281C / 4] = d(2);            // bit de estado que XeLL sondea (listo)
     }
 
     @Override
@@ -61,6 +58,25 @@ public class XenosGpu implements Device {
         int i = (int) (offs >> 2);
         if (i >= 0 && i < regs.length) {
             regs[i] = v;
+
+            // El motor ANA confirma la escritura limpiando el registro de dirección.
+            // libxenon espera que 0x7950 deje de contener la dirección enviada.
+            if (offs == 0x7954) {
+                regs[0x7950 / 4] = 0;
+            }
+
+            // DC_LUT_AUTOFILL: bit 1 indica que el llenado automático terminó.
+            if (offs == 0x64A0 && (v & 1) != 0) {
+                regs[i] = 2;
+            }
+
+            // D1GRPH_PRIMARY_SURFACE_ADDRESS: notifica el cambio de superficie.
+            if (offs == 0x6110 && onSurface != null) {
+                long address = v & 0xFFFFFFFFL;
+                if (address != 0) {
+                    onSurface.accept(address);
+                }
+            }
         }
     }
 

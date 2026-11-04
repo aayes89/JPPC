@@ -1,26 +1,3 @@
-/*
- * The MIT License
- *
- * Copyright 2025 Slam.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- */
 package pcp;
 
 import java.io.IOException;
@@ -61,15 +38,22 @@ public class PPCSimulator {
     private final Bus bus = new Bus(memory);
     private final CacheController cache = new CacheController(bus, MEMORY_SIZE, true);
     private final CPU cpu = new CPU(bus, cache);
+    private final java.util.List<CPU> threads = new java.util.ArrayList<>();
+    private int threadCount = 1;
+    private boolean threadsPrepared = false;
+    private boolean threadsUserSet = false;
+    private long tb = -1;
     private final Debugger debugger = new Debugger(cpu);
     private final Console console = new Console();
     private final pcp.gpu.XenonUart uart = new pcp.gpu.XenonUart(console);
+    private final pcp.gpu.XenonSfcx sfcx = new pcp.gpu.XenonSfcx();
     private final FrameBuffer frameBuffer;
     private final int fbW, fbH;
     private long fbBase = FB_BASE;
     private boolean fbAttached = false;
     private boolean fbBaseUserSet = false;
     private boolean elfMode = false;
+    private boolean xell = false;
     public static final long FB_BASE_ELF = 0x1E000000L; // lejos de la imagen de LK (0x10000000)
 
     private volatile boolean running = false;
@@ -81,12 +65,16 @@ public class PPCSimulator {
     }
 
     public PPCSimulator(int fbWidth, int fbHeight) {
+        threads.add(cpu);
         frameBuffer = new FrameBuffer(fbWidth, fbHeight);
         fbW = fbWidth;
         fbH = fbHeight;
         bus.attachDevice(console, CONSOLE_BASE, CONSOLE_BASE + 0xF);
         bus.attachDevice(frameBuffer.getRegisters(), FB_REGS, FB_REGS + 0xF);
         bus.attachDevice(uart, pcp.gpu.XenonUart.BASE, pcp.gpu.XenonUart.BASE + 0x1F);
+        bus.attachDevice(new pcp.gpu.XenonSmc(), pcp.gpu.XenonSmc.BASE, pcp.gpu.XenonSmc.BASE + 0x1F);
+        bus.attachDevice(sfcx, pcp.gpu.XenonSfcx.BASE,
+                pcp.gpu.XenonSfcx.BASE + pcp.gpu.XenonSfcx.SIZE - 1);
     }
 
     /** Elige la dirección del framebuffer (debe llamarse antes de start/run). */
@@ -105,11 +93,18 @@ public class PPCSimulator {
             bus.attachDevice(frameBuffer, fbBase, fbBase + frameBuffer.sizeBytes() - 1);
             bus.attachDevice(new pcp.gpu.ToyGpu(bus, frameBuffer), pcp.gpu.ToyGpu.BASE,
                     pcp.gpu.ToyGpu.BASE + pcp.gpu.ToyGpu.SIZE - 1);
+            // GPU Xenos (registros D1GRPH, etc.): la usan tanto LK (lwz) como XeLL (read32n)
+            pcp.gpu.XenosGpu gpu = new pcp.gpu.XenosGpu(fbBase, fbW, fbH, false);
+            gpu.setOnSurfaceChange(addr -> {
+                if (addr != 0 && addr != fbBase) {
+                    System.out.printf("[gpu] superficie primaria -> 0x%x%n", addr);
+                    fbBase = addr;
+                    bus.moveDevice(frameBuffer, addr, addr + frameBuffer.sizeBytes() - 1);
+                }
+            });
+            bus.attachDevice(gpu, pcp.gpu.XenosGpu.BASE, pcp.gpu.XenosGpu.BASE + pcp.gpu.XenosGpu.SIZE - 1);
             if (elfMode) {
-                // Firmware tipo libxenon/LK: GPU Xenos con los registros D1GRPH y tiling real del Xenos
-                bus.attachDevice(new pcp.gpu.XenosGpu(fbBase, fbW, fbH), pcp.gpu.XenosGpu.BASE,
-                        pcp.gpu.XenosGpu.BASE + pcp.gpu.XenosGpu.SIZE - 1);
-                frameBuffer.setTileMode(2);
+                frameBuffer.setTileMode(2); // tiling real del Xenos (libxenon)
             }
             fbAttached = true;
         }
@@ -119,11 +114,21 @@ public class PPCSimulator {
         return bus;
     }
 
+    /** Carga una imagen NAND Xenon de solo lectura antes de ejecutar el firmware. */
+    public void loadNand(java.nio.file.Path path) throws IOException {
+        sfcx.loadNand(path);
+        pcp.gpu.NandImage image = sfcx.getNandImage();
+        System.out.printf("[SFCX] NAND %s: %d bytes, %s, %d páginas, %d bloques (solo lectura)%n",
+                image.getSource(), image.getSize(), image.getFormat(),
+                image.getPageCount(), image.getBlockCount());
+    }
+
     /** Carga un binario plano en 'address' y apunta el PC allí. */
     public void loadBinary(String filename, long address) {
         try {
             byte[] program = Files.readAllBytes(Paths.get(filename));
             memory.writeBlock(address, program);
+            cpu.setMsr(cpu.getMsr() | 0x8000000000000000L); // binarios planos: modo de 64 bits
             cpu.setPc(address);
         } catch (IOException e) {
             throw new RuntimeException("Error loading binary: " + e.getMessage(), e);
@@ -138,9 +143,20 @@ public class PPCSimulator {
         try {
             ELFFile elf = new ELFFile(filename);
             // ELF de 64 bits = firmware tipo Xenon (GPU Xenos, tiling real); ELF de 32 bits = programa plano
-            elfMode = elf.is64Bit();
+            xell = containsAscii(elf.elfData, "Xenon Linux Loader");
+            elfMode = elf.is64Bit() || xell; // firmware libxenon: GPU Xenos + tiling propio
+            if (!threadsUserSet && xell) {
+                threadCount = 6; // XeLL espera que los 6 hilos hardware se registren en su mailbox
+            }
             if (elfMode && !fbBaseUserSet) {
                 fbBase = FB_BASE_ELF;
+            }
+            if (elfMode) {
+                // 0xC8000000 es la ventana de datos NAND lógica en Xenon real
+                // (el MMIO SFCX está en 0xEA00C000). El bloque de control del framebuffer es
+                // una extensión del emulador
+                // para binarios planos y no debe interceptar accesos de firmware ELF.
+                bus.moveDevice(frameBuffer.getRegisters(), 0xF0000000L, 0xF000000FL);
             }
 
             if (elf.getMachine() != ELFFile.EM_PPC && elf.getMachine() != ELFFile.EM_PPC64) {
@@ -188,14 +204,30 @@ public class PPCSimulator {
                 cpu.setOpdRange(opd.address, opd.address + opd.size);
             }
             entryPoint &= 0x1FFFFFFF;
-            // modo 64 bits (SF=1) como el Xenon real
-            cpu.setMsr(cpu.getMsr() | 0x8000000000000000L);
+            // SF=1 sólo para ELF64 (LK); los ELF32 (XeLL...) corren en modo de 32 bits
+            if (elf.is64Bit()) {
+                cpu.setMsr(cpu.getMsr() | 0x8000000000000000L);
+            }
             cpu.setPc(entryPoint);
             System.out.println("Setting PC to 0x" + Long.toHexString(entryPoint));
             loadSymbols(elf.getSectionByName(".symtab"), elf.getSectionByName(".strtab"));
         } catch (ELFException e) {
             throw new RuntimeException("Error loading ELF: " + e.getMessage(), e);
         }
+    }
+
+    private static boolean containsAscii(byte[] data, String needle) {
+        byte[] n = needle.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        outer:
+        for (int i = 0; i + n.length <= data.length; i++) {
+            for (int j = 0; j < n.length; j++) {
+                if (data[i + j] != n[j]) {
+                    continue outer;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     private void loadSymbols(ELFSection symtab, ELFSection strtab) {
@@ -205,14 +237,82 @@ public class PPCSimulator {
         debugger.loadSymbols(symtab, strtab);
     }
 
+    /** Número de hilos hardware (el Xenon tiene 6: 3 núcleos x 2). Todos arrancan en el mismo punto de entrada. */
+    public void setThreads(int n) {
+        threadCount = Math.max(1, Math.min(6, n));
+        threadsUserSet = true;
+    }
+
+    public void setTb(long n) {
+        tb = n;
+    }
+
+    private void prepareThreads() {
+        if (threadsPrepared) {
+            return;
+        }
+        threadsPrepared = true;
+        long inc = tb > 0 ? tb : (xell ? 1000 : 1);
+        cpu.setTbIncrement(inc);
+        cpu.setPir(0);
+        for (int i = 1; i < threadCount; i++) {
+            CPU t = new CPU(bus, new CacheController(bus, MEMORY_SIZE, true));
+            t.setPir(i);
+            t.setTbIncrement(inc);
+            t.setPc(cpu.getPc());
+            t.setMsr(cpu.getMsr());
+            for (int r = 0; r < 32; r++) {
+                t.setGPR(r, cpu.getGPRVal(r));
+            }
+            t.setOpdRange(cpu.getOpdStart(), cpu.getOpdEnd());
+            for (long w : watches) {
+                t.addWatchPc(w);
+            }
+            threads.add(t);
+        }
+        if (threadCount > 1) {
+            System.out.println("[sim] " + threadCount + " hilos hardware (PIR 0.." + (threadCount - 1) + ")");
+        }
+    }
+
+    /** Planificador round-robin de todos los hilos; devuelve las instrucciones ejecutadas por todos. */
+    private long runAll(long maxInstr) {
+        prepareThreads();
+        long total = 0;
+        final int quantum = 256;
+        while (total < maxInstr) {
+            boolean any = false;
+            for (CPU t : threads) {
+                if (t.isHalted()) {
+                    continue;
+                }
+                any = true;
+                total += t.run(quantum);
+                while (t.hasReservation() && !t.isHalted()) { // no partir lwarx..stwcx.
+                    t.step();
+                    total++;
+                }
+            }
+            if (!any || !running && !blocking) {
+                break;
+            }
+        }
+        return total;
+    }
+
+    private volatile boolean blocking = false;
+
     /** Ejecuta en un hilo aparte hasta que la CPU se detenga o se llame a stop(). */
     public void start() {
         attachFb();
         running = true;
-        cpu.resume();
+        prepareThreads();
+        for (CPU t : threads) {
+            t.resume();
+        }
         thread = new Thread(() -> {
-            while (running && !cpu.isHalted()) {
-                cpu.run(100_000);
+            while (running && anyRunning()) {
+                runAll(100_000);
             }
             running = false;
         }, "ppc-cpu");
@@ -223,17 +323,35 @@ public class PPCSimulator {
     /** Ejecuta en el hilo actual hasta maxInstr instrucciones. */
     public long runBlocking(long maxInstr) {
         attachFb();
-        cpu.resume();
-        return cpu.run(maxInstr);
+        for (CPU t : threads) {
+            t.resume();
+        }
+        blocking = true;
+        try {
+            return runAll(maxInstr);
+        } finally {
+            blocking = false;
+        }
+    }
+
+    private boolean anyRunning() {
+        for (CPU t : threads) {
+            if (!t.isHalted()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void stop() {
         running = false;
-        cpu.halt();
+        for (CPU t : threads) {
+            t.halt();
+        }
     }
 
     public boolean isRunning() {
-        return running && !cpu.isHalted();
+        return running && anyRunning();
     }
 
     public void step() {
@@ -247,6 +365,17 @@ public class PPCSimulator {
 
     public void setDebugMode(boolean enabled) {
         debugMode = enabled;
+    }
+
+    private final java.util.List<Long> watches = new java.util.ArrayList<>();
+
+    public void addWatch(long a) {
+        watches.add(a);
+        cpu.addWatchPc(a);
+    }
+
+    public void setSprTrace(boolean enabled) {
+        cpu.setSprTrace(enabled);
     }
 
     public void setTrace(boolean enabled) {

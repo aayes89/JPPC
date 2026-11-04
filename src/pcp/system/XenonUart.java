@@ -22,6 +22,7 @@
  * THE SOFTWARE.
  */
 package pcp.system;
+
 import java.util.ArrayDeque;
 import java.util.Deque;
 import pcp.gpu.Console;
@@ -65,7 +66,7 @@ public class XenonUart implements Device {
                 Integer c = rx.poll();
                 return c == null ? 0 : c << 24;
             }
-            case 0x18:
+            case 0x181:
                 return 0x02000000 | (rx.isEmpty() ? 0 : 0x01000000);
             case 0x1C:
                 return config;
@@ -79,6 +80,7 @@ public class XenonUart implements Device {
         switch ((int) (offs & ~3L)) {
             case 0x14:
                 console.write(0, (byte) (v >>> 24));
+                System.out.print((char) ((v >>> 24) & 0xFF));
                 break;
             case 0x1C:
                 config = v;
@@ -89,14 +91,18 @@ public class XenonUart implements Device {
     }
 
     @Override
-    public byte read(long offs) {
-        return (byte) (readWord(offs & ~3L) >>> (24 - 8 * (int) (offs & 3)));
-    }
-
-    @Override
     public void write(long offs, byte v) {
         if ((offs & 3) == 0 && (offs & ~3L) == 0x14) { // byte alto = carácter
             console.write(0, v);
         }
+        if ((offs & ~3L) == 0x14) {
+            System.out.print((char) (v & 0xFF));
+        }
     }
+
+    @Override
+    public byte read(long offs) {
+        return (byte) (readWord(offs & ~3L) >>> (24 - 8 * (int) (offs & 3)));
+    }
+
 }

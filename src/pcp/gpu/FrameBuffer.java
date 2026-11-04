@@ -32,7 +32,14 @@ import java.util.Arrays;
  */
 public class FrameBuffer implements Device {
 
-    /*
+    /**
+     * Framebuffer + untile para emulador Xbox 360 (PPC). Corrige: 1. índice
+     * base de macro‑tile (32×32) → antes se desfasaba 2. setPixel / printText
+     * ahora escriben en modo tiled 3. detile32 usa la fórmula oficial del Xenos
+     *
+     * @author Slam
+     */
+    /**
      * Modelo de memoria de vídeo:
      *  - gpuTiledBuffer ("VRAM"): lo que escribe la CPU emulada por MMIO.
      *    Cada int es un píxel 0x??RRGGBB. Es lineal por defecto; si tiled=true
