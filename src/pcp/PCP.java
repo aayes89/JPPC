@@ -10,7 +10,8 @@ import pcp.gpu.FrameBufferPanel;
 
 /**
  * Uso: java pcp.PCP [archivo] [opciones]
- *   --elf            el archivo es un ELF de PowerPC (por defecto: binario plano en 0x0)
+ *   --1bl            carga y ejecuta el Boot ROM 1BL Xenon
+   --elf            el archivo es un ELF de PowerPC (por defecto: binario plano en 0x0)
  *   --load 0xADDR    dirección de carga del binario plano
  *   --size WxH       resolución del framebuffer (por defecto 1024x768)
  *   --headless       sin ventana: ejecuta, guarda PNG y termina
@@ -32,7 +33,7 @@ public class PCP {
 
     public static void main(String[] args) throws Exception {
         String path = "./src/pcp/TESTS/xenon.elf";
-        boolean elf = true, headless = false, trace = false, vram = false, mandel = false, busTrace = false;
+        boolean elf = true, headless = false, trace = false, vram = false, mandel = false, busTrace = false, oneBl = true;
         long fbBase = -1;
         String input = null;
         java.util.List<Long> watchList = new java.util.ArrayList<>();
@@ -42,12 +43,14 @@ public class PCP {
         int w = 1024, h = 768;
         String png = "fb.png";
         String consolePng = null;
-        String nandPath = null;
+        String nandPath = "./src/pcp/TESTS/nand.bin";
+        String oneBLPath = "./src/pcp/TESTS/1bl.bin";
         long[] busRange = null;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--elf": elf = true; break;
+                case "--1bl": oneBl = true; break;
                 case "--headless": headless = true; break;
                 case "--trace": trace = true; break;
                 case "--vram": vram = true; break;
@@ -88,7 +91,9 @@ public class PCP {
         ppcs.getBus().setTraceUnmapped(busTrace);
         if (busRange != null) ppcs.getBus().setTraceRange(busRange[0], busRange[1]);
         ppcs.setSprTrace(busTrace);
-        if (elf) {
+        if (oneBl) {
+            ppcs.load1BL(oneBLPath);
+        } else if (elf) {
             ppcs.loadELF(path);
         } else {
             ppcs.loadBinary(path, load);

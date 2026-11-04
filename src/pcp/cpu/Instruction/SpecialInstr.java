@@ -616,9 +616,7 @@ public class SpecialInstr {
     // TLB Invalidate Entry
     public void tlbie(int RB) {
         long address = cpu.getGPRVal(RB);
-        System.out.println("tlbie: Invalidating TLB entry for address 0x" + Long.toHexString(address));
-        // In a real implementation, invalidate TLB entry for the effective address        
-        // cpu.getTLB().invalidate(address);
+        cpu.getMmu().invalidateTLBEntry(address);
     }
 
     // Método para la instrucción mtxer (ejemplo)
@@ -629,18 +627,14 @@ public class SpecialInstr {
 
     // slbia - Segment Lookaside Buffer Invalidate All
     public void slbia() {
-        // En un simulador básico, esto puede ser un no-op
-        // En una implementación completa, invalidar todas las entradas del SLB
-        System.out.println("slbia: Invalidating all SLB entries");        
+        // Modelo de un hilo: invalida las traducciones segmentadas locales.
         cpu.getMmu().invalidateTLB();
     }
 
     // tlbsync - TLB Synchronize
     public void tlbsync() {
-        // En un simulador de un solo procesador, esto puede ser un no-op
-        // En un simulador multiprocesador, implementar sincronización
-        System.out.println("tlbsync: Synchronizing TLB operations");
-        // Ejemplo: cpu.synchronizeTLB();
+        // Las invalidaciones son síncronas en el modelo actual de un solo hilo.
+        // La instrucción actúa como punto de ordenación; no requiere worker adicional.
     }
 
     private void DCACHE_Flush(long addr) {

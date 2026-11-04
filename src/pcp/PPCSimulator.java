@@ -53,6 +53,7 @@ public class PPCSimulator {
     private long fbBase = FB_BASE;
     private boolean fbAttached = false;
     private boolean fbBaseUserSet = false;
+    private boolean bootRomMode = false;
     private boolean elfMode = false;
     private boolean xell = false;
     public static final long FB_BASE_ELF = 0x1E000000L; // superficie Xenos usada por XeLL Xenon (1280x720)
@@ -92,7 +93,7 @@ public class PPCSimulator {
 
     /** Conecta el framebuffer al bus en fbBase (una sola vez). */
     private void attachFb() {
-        if (!fbAttached) {
+        if (!fbAttached && !bootRomMode) {
             bus.attachDevice(frameBuffer, fbBase, fbBase + frameBuffer.sizeBytes() - 1);
             bus.attachDevice(new pcp.gpu.ToyGpu(bus, frameBuffer), pcp.gpu.ToyGpu.BASE,
                     pcp.gpu.ToyGpu.BASE + pcp.gpu.ToyGpu.SIZE - 1);
@@ -116,6 +117,74 @@ public class PPCSimulator {
 
     public Bus getBus() {
         return bus;
+    }
+
+
+    /** ROM de arranque 1BL: ventana física Xenon, de solo lectura. */
+    private static final class BootRom implements pcp.gpu.Device {
+        private final byte[] image;
+        BootRom(byte[] image) { this.image = image.clone(); }
+        @Override public boolean containsAddress(long address) {
+            return address >= 0 && address < image.length;
+        }
+        @Override public byte read(long offset) {
+            return offset >= 0 && offset < image.length ? image[(int) offset] : 0;
+        }
+        @Override public void write(long offset, byte value) { /* ROM */ }
+    }
+
+    /** SRAM interna del XCPU (64 KiB), usada por 1BL antes de inicializar la DDR. */
+    private static final class BootSram implements pcp.gpu.Device {
+        private final byte[] bytes;
+        BootSram(int size) { bytes = new byte[size]; }
+        @Override public boolean containsAddress(long address) {
+            return address >= 0 && address < bytes.length;
+        }
+        @Override public byte read(long offset) {
+            return offset >= 0 && offset < bytes.length ? bytes[(int) offset] : 0;
+        }
+        @Override public void write(long offset, byte value) {
+            if (offset >= 0 && offset < bytes.length) bytes[(int) offset] = value;
+        }
+    }
+
+    /**
+     * Carga el Boot ROM 1BL sin modificar ni copiar la NAND. El archivo completo se presenta en 0x8000020000000000; el entry 0x100
+     * de la cabecera determina el PC inicial.
+     */
+    public void load1BL(String filename) {
+        try {
+            byte[] image = Files.readAllBytes(Paths.get(filename));
+            if (image.length != 0x8000 || ((image[0] & 0xFF) << 8 | (image[1] & 0xFF)) != 0x0341) {
+                throw new IllegalArgumentException("No es un 1BL Xenon de 32 KiB (magic 0x0341)");
+            }
+            int declared = ((image[12] & 0xFF) << 24) | ((image[13] & 0xFF) << 16)
+                    | ((image[14] & 0xFF) << 8) | (image[15] & 0xFF);
+            if (declared <= 0 || 0x100L + declared > image.length) {
+                throw new IllegalArgumentException("Tamaño 1BL inválido: 0x" + Integer.toHexString(declared));
+            }
+            byte[] mapped = Arrays.copyOf(image, 0x100 + declared);
+            final long romBase = 0x8000020000000000L;
+            BootRom rom = new BootRom(mapped);
+            bootRomMode = true;
+            // El config-ring de Xenon ocupa una ventana de 4 KiB en el mapa de boot.
+            // Debe tener prioridad sobre el contenido ROM: el 1BL lo limpia y lo consulta.
+            BootSram configRing = new BootSram(0x1000);
+            bus.attachDevice(configRing, 0x200L, 0x11FFL);
+            bus.attachDevice(configRing, romBase + 0x200L, romBase + 0x11FFL);
+            // SRAM interna de 64 KiB usada como stack y workspace antes de DDR.
+            BootSram sram = new BootSram(0x10000);
+            bus.attachDevice(sram, romBase + 0x10000L, romBase + 0x1FFFFL);
+            bus.attachDevice(rom, 0, mapped.length - 1); // alias de baja dirección
+            bus.attachDevice(rom, 0x01000000L, 0x01000000L + mapped.length - 1); // ventana de ejecución ROM
+            bus.attachDevice(rom, romBase, romBase + mapped.length - 1);
+            cpu.setMsr(cpu.getMsr() | 0x8000000000000000L);
+            cpu.setPc(romBase + 0x100);
+            System.out.printf("[1BL] ROM mapeada: base=0x%016x size=0x%x PC=0x%016x%n",
+                    romBase, mapped.length, cpu.getPc());
+        } catch (IOException e) {
+            throw new RuntimeException("No se pudo cargar 1BL: " + e.getMessage(), e);
+        }
     }
 
     /** Carga una imagen NAND Xenon de solo lectura antes de ejecutar el firmware. */

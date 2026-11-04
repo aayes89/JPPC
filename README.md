@@ -177,3 +177,7 @@ M8.3 unifica la entrada de excepciones de almacenamiento e instrucción entre MM
 ## M8.4 — MMU Translation Fault Containment
 
 Ver `M8.4-REPORT.md`. La resolución predeterminada y `run.sh xell` son 1024x768. La regresión de esta configuración ejecuta LK y `xenon.elf`; no invoca `fb_demo` ni `triangle_fixed`. Los fallos de traducción DSI/ISI abortan el acceso en lugar de devolver PA=0.
+
+## M8.5 — TLB lookup e invalidación
+
+Se amplía el VPN a 20 bits y se conectan `tlbie`/`slbia` con invalidaciones reales del TLB software. Véase `M8.5-REPORT.md` para validación y límites. Esta etapa **no declara preparación para 1BL**: SDR1/hash page tables y permisos de PTE siguen pendientes.

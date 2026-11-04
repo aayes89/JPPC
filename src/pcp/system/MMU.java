@@ -110,7 +110,7 @@ public class MMU {
             return (physicalBase | (effective & blockMask)) & 0xFFFFFFFFL;
         }
         // TLB translation
-        long vpn = (virtualAddress >>> 12) & 0xFFFF;
+        long vpn = (virtualAddress >>> 12) & 0xFFFFFL; // 20 bits de página en EA de 32 bits
         for (TLBEntry entry : tlb) {
             if (entry.valid && entry.vsid == vsid && entry.vpn == vpn) {
                 return (entry.ppn << 12) | (virtualAddress & 0xFFF);
@@ -160,6 +160,19 @@ public class MMU {
         }
     }
 
+    /** Invalida la traducción de una EA concreta dentro del VSID actual. */
+    public void invalidateTLBEntry(long effectiveAddress) {
+        int segment = (int) ((effectiveAddress >>> 28) & 0xF);
+        int vsid = segmentRegisters[segment] & 0x00FFFFFF;
+        int vpn = (int) ((effectiveAddress >>> 12) & 0xFFFFF);
+        for (TLBEntry entry : tlb) {
+            if (entry.valid && entry.vsid == vsid && entry.vpn == vpn) {
+                entry.valid = false;
+            }
+        }
+    }
+
+    /** Invalida todas las traducciones locales; un solo hilo hardware en este modelo. */
     public void invalidateTLB() {
         for (TLBEntry entry : tlb) {
             entry.valid = false;

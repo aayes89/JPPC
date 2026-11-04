@@ -32,6 +32,8 @@ check "Xenon SPR TBL/TBU + Time Base + DEC underflow" \
     "$(java -cp "$CP" pcp.TESTS.XenonTimebaseSelfTest 2>&1)" "Xenon Time Base/Decrementer: ALL OK"
 check "Xenon MMU IBAT/DBAT effective-address translation" \
     "$(java -cp "$CP" pcp.TESTS.XenonMmuSelfTest 2>&1)" "Xenon MMU BAT: ALL OK"
+check "Xenon TLB lookup + tlbie/tlbia invalidation" \
+    "$(java -cp "$CP" pcp.TESTS.XenonTlbSelfTest 2>&1)" "Xenon TLB: ALL OK"
 check "Xenon DSI/ISI exception state" \
     "$(java -cp "$CP" pcp.TESTS.XenonExceptionSelfTest 2>&1)" "Xenon DSI/ISI exception state: ALL OK"
 check "SATA/ATAPI virtual DVD sin medio" \

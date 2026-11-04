@@ -18,7 +18,7 @@ import pcp.gpu.Device;
  */
 public class Bus {
 
-    private static final long ADDR_MASK = 0xFFFFFFFFL;
+    private static final long ADDR_MASK = -1L;
 
     private static class DeviceMapping {
 
@@ -48,8 +48,7 @@ public class Bus {
 
     /** Limita la traza MMIO a un rango inclusivo de direcciones físicas. */
     public void setTraceRange(long start, long end) {
-        start &= ADDR_MASK;
-        end &= ADDR_MASK;
+        // El espacio físico se conserva completo (64 bits).
         if (Long.compareUnsigned(start, end) > 0) {
             throw new IllegalArgumentException("Rango de bus invertido");
         }
@@ -71,10 +70,19 @@ public class Bus {
         if (n > 2) {
             return; // no repetir el mismo acceso (bucles de espera)
         }
-        boolean ramMirror = (address >= 0x80000000L && address < 0xA0000000L) || (address >= 0x1C000000L && address < 0x1E000000L && kind.startsWith("escritura"));
-        if ((address >= memory.getMemorySize() && !(address >= 0x80000000L && address < 0xA0000000L)) || (address >= 0x1C000000L && address < 0x1E000000L && kind.startsWith("escritura"))) {
+        // Las direcciones Xenon de boot/MMIO pueden tener el bit 63 activo.
+        // Las comparaciones signed de Java las clasificaban como negativas y
+        // ocultaban precisamente los accesos físicos de 64 bits que necesitamos
+        // diagnosticar durante el arranque 1BL.
+        boolean realModeMirror = Long.compareUnsigned(address, 0x80000000L) >= 0
+                && Long.compareUnsigned(address, 0xA0000000L) < 0;
+        boolean legacyWriteWindow = Long.compareUnsigned(address, 0x1C000000L) >= 0
+                && Long.compareUnsigned(address, 0x1E000000L) < 0
+                && kind.startsWith("escritura");
+        boolean outsideRam = Long.compareUnsigned(address, Integer.toUnsignedLong(memory.getMemorySize())) >= 0;
+        if ((outsideRam && !realModeMirror) || legacyWriteWindow) {
             unmappedLogged++;
-            System.out.printf("[bus] %s no mapeado 0x%08x valor=0x%x%n", kind, address, value);
+            System.out.printf("[bus] %s no mapeado 0x%016x valor=0x%x%n", kind, address, value);
         }
     }
 
@@ -83,15 +91,15 @@ public class Bus {
     }
 
     public void attachDevice(Device device, long startAddress, long endAddress) {
-        devices.add(new DeviceMapping(device, startAddress & ADDR_MASK, endAddress & ADDR_MASK));
+        devices.add(new DeviceMapping(device, startAddress, endAddress));
     }
 
     /** Cambia la ventana de un dispositivo ya conectado (p. ej. el framebuffer cuando la GPU cambia su superficie). */
     public void moveDevice(Device device, long startAddress, long endAddress) {
         for (DeviceMapping m : devices) {
             if (m.device == device) {
-                m.startAddress = startAddress & ADDR_MASK;
-                m.endAddress = endAddress & ADDR_MASK;
+                m.startAddress = startAddress;
+                m.endAddress = endAddress;
             }
         }
     }
@@ -104,7 +112,8 @@ public class Bus {
     private DeviceMapping find(long address) {
         for (int i = 0; i < devices.size(); i++) {
             DeviceMapping m = devices.get(i);
-            if (address >= m.startAddress && address <= m.endAddress) {
+            if (Long.compareUnsigned(address, m.startAddress) >= 0
+                    && Long.compareUnsigned(address, m.endAddress) <= 0) {
                 return m;
             }
         }
@@ -112,46 +121,46 @@ public class Bus {
     }
 
     public byte read(long address) {
-        address = canon(address & ADDR_MASK);
+        address = canon(address);
         DeviceMapping m = find(address);
         if (m == null) {
             logUnmapped("lectura", address, 0);
-            return address < memory.getMemorySize() ? memory.read(address) : 0;
+            return address >= 0 && address < memory.getMemorySize() ? memory.read(address) : 0;
         }
         return m.device.read(address - m.startAddress);
     }
 
     public void write(long address, byte value) {
-        address = canon(address & ADDR_MASK);
+        address = canon(address);
         DeviceMapping m = find(address);
         if (m != null) {
             m.device.write(address - m.startAddress, value);
         } else {
             logUnmapped("escritura", address, value & 0xFF);
-            if (address < memory.getMemorySize()) {
+            if (address >= 0 && address < memory.getMemorySize()) {
                 memory.write(address, value);
             }
         }
     }
 
     public int readWord(long address) {
-        address = canon(address & ADDR_MASK);
+        address = canon(address);
         DeviceMapping m = find(address);
         if (m == null) {
             logUnmapped("lectura32", address, 0);
-            return address < memory.getMemorySize() ? memory.readMemoryWord(address) : 0;
+            return address >= 0 && address < memory.getMemorySize() ? memory.readMemoryWord(address) : 0;
         }
         return m.device.readWord(address - m.startAddress);
     }
 
     public void writeWord(long address, long value) {
-        address = canon(address & ADDR_MASK);
+        address = canon(address);
         DeviceMapping m = find(address);
         if (m != null) {
             m.device.writeWord(address - m.startAddress, (int) value);
         } else {
             logUnmapped("escritura32", address, value & 0xFFFFFFFFL);
-            if (address < memory.getMemorySize()) {
+            if (address >= 0 && address < memory.getMemorySize()) {
                 memory.writeMemoryWord(address, (int) value);
             }
         }

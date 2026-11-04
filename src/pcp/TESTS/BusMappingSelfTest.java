@@ -40,6 +40,17 @@ public final class BusMappingSelfTest {
         require((bus.read(0xEA001307L) & 0xFF) == 0x40,
                 "MMIO byte read incorrecto");
 
-        System.out.println("Bus mapping/alias/MMIO endian: ALL OK");
+        // Ventana física Xenon de 64 bits (bit 63 activo): no debe truncarse
+        // ni confundirse con una dirección negativa de Java.
+        RegisterDevice bootDevice = new RegisterDevice();
+        long bootBase = 0x8000020000000000L;
+        bus.attachDevice(bootDevice, bootBase, bootBase + 0xFF);
+        bus.writeWord(bootBase + 0x10, 0xA1B2C3D4);
+        require(bus.readWord(bootBase + 0x10) == 0xA1B2C3D4,
+                "MMIO/ROM window Xenon 64-bit no conserva el acceso big-endian");
+        require((bus.read(bootBase + 0x10) & 0xFF) == 0xA1,
+                "MMIO/ROM window Xenon 64-bit byte read incorrecto");
+
+        System.out.println("Bus mapping/alias/MMIO endian/64-bit: ALL OK");
     }
 }

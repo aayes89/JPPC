@@ -157,6 +157,8 @@ public class CPU {
     // =====================================================================
     private static final long M32 = 0xFFFFFFFFL;
     private long nextPc;
+
+    private long addressWidth(long address) { return sf() ? address : address & M32; }
     private boolean decPending = false;
     private volatile boolean halted = false;
     private long instructionCount = 0;
@@ -466,10 +468,10 @@ public class CPU {
             target = ctr & ~3L;
         }
         if ((insn & 1) != 0) {
-            lr = (pc + 4) & M32;
+            lr = addressWidth(pc + 4);
         }
         if (ctrOk && condOk) {
-            nextPc = target & M32;
+            nextPc = addressWidth(target);
         }
     }
 
@@ -494,7 +496,7 @@ public class CPU {
         srr1 = (msr & ~0xFFFFL) | (msr & 0xFFFFL) | extra;
         msr &= ~(long) (MSR_EE | MSR_PR | MSR_FP | MSR_IR | MSR_DR);
         interruptMode = true;
-        nextPc = vector & M32;
+        nextPc = addressWidth(vector);
         if (bus.readWord(vector) == 0) {
             System.err.println("[CPU] Excepción 0x" + Integer.toHexString(vector) + " en PC=0x"
                     + Long.toHexString(savedPc) + " sin manejador instalado: CPU detenida"
@@ -520,7 +522,7 @@ public class CPU {
         final long simm = (short) insn;
         final long uimm = insn & 0xFFFFL;
         final boolean rc = (insn & 1) != 0;
-        nextPc = (pc + 4) & M32;
+        nextPc = addressWidth(pc + 4);
         if (debugMode) {
             System.out.printf("PC=%08x insn=%08x%n", pc, insn);
         }
@@ -580,9 +582,9 @@ public class CPU {
                     long li = ((insn & 0x03FFFFFC) << 6) >> 6;
                     long target = (insn & 2) != 0 ? li : pc + li;
                     if ((insn & 1) != 0) {
-                        lr = (pc + 4) & M32;
+                        lr = addressWidth(pc + 4);
                     }
-                    nextPc = target & M32;
+                    nextPc = addressWidth(target);
                     break;
                 }
                 case 19: {
@@ -592,7 +594,7 @@ public class CPU {
                         case 528: branchConditional(insn, 2); break;  // bcctr
                         case 50: // rfi
                         case 18: // rfid
-                            nextPc = srr0 & ~3L & M32;
+                            nextPc = addressWidth(srr0 & ~3L);
                             msr = srr1;
                             interruptMode = false;
                             break;
@@ -734,7 +736,7 @@ public class CPU {
             lastIllegalInsn = insn & M32;
             takeException(ExceptionHandler.EXCEPTION_PROGRAM, pc, 0x00080000L);
         }
-        pc = nextPc & M32;
+        pc = addressWidth(nextPc);
         instructionCount++;
     }
 
@@ -1455,7 +1457,7 @@ public class CPU {
                 System.out.printf("[CPU] salto a descriptor .opd 0x%x -> 0x%x (TOC 0x%x)%n", pc, target, toc);
             }
             gpr[2] = toc;
-            pc = target & M32;
+            pc = addressWidth(target);
         }
         if (!watchPcs.isEmpty() && watchPcs.contains(pc & 0x1FFFFFFFL)) {
             watchDump();
@@ -1465,7 +1467,7 @@ public class CPU {
             insn = fetchInstruction();
         } catch (MMU.TranslationFault fault) {
             // ISI ya fue entregada por la MMU; no decodificar una instrucción sustituta.
-            pc = nextPc & M32;
+            pc = addressWidth(nextPc);
             tick();
             checkInterrupts();
             return;
@@ -1496,7 +1498,7 @@ public class CPU {
 
     public void handleInterrupt(int vector) {
         takeException(vector, pc, 0);
-        pc = nextPc & M32;
+        pc = addressWidth(nextPc);
     }
 
     public void setMSRBit(int bit, boolean value) {
@@ -1512,7 +1514,7 @@ public class CPU {
     }
 
     public void returnFromInterrupt() {
-        pc = srr0 & M32; // Restaurar PC
+        pc = addressWidth(srr0); // Restaurar PC
         msr = srr1 & M32; // Restaurar MSR
         interruptMode = false;
     }
@@ -1612,7 +1614,7 @@ public class CPU {
     }
 
     public void setPc(long pc) {
-        this.pc = pc & M32;
+        this.pc = addressWidth(pc);
         if (debugMode) {
             System.out.println("Set PC: 0x" + Long.toHexString(this.pc));
         }
@@ -1849,11 +1851,11 @@ public class CPU {
     }
 
     private long xlateData(long a, boolean write) {
-        return mmuEnabled ? mmu.translateAddress(a & M32, write, false) & M32 : a & M32;
+        return mmuEnabled ? mmu.translateAddress(a & M32, write, false) & M32 : addressWidth(a);
     }
 
     public int fetchInstruction() {
-        return bus.readWord(mmuEnabled ? mmu.translateAddress(pc & M32, false, true) & M32 : pc & M32);
+        return bus.readWord(mmuEnabled ? mmu.translateAddress(pc & M32, false, true) & M32 : addressWidth(pc));
     }
 
     public byte readMemoryByte(long address) {
