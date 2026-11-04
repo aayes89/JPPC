@@ -1,5 +1,29 @@
 package pcp.utils;
 
+/*
+ * The MIT License
+ *
+ * Copyright 2025 Slam.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
+
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
@@ -7,9 +31,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Lector de imágenes ISO9660 (solo lectura): ISO9660 plano (8.3), Rock Ridge (nombres largos, "NM")
- * y Joliet (UCS-2), más detección de El Torito (imagen de arranque y plataforma).
- * Pensado para extraer kernels/bootloaders de ISOs de sistemas PPC (Linux PPC, Mac, etc.).
+ * Lector de imágenes ISO9660 (solo lectura): ISO9660 plano (8.3), Rock Ridge
+ * (nombres largos, "NM") y Joliet (UCS-2), más detección de El Torito (imagen
+ * de arranque y plataforma). Pensado para extraer kernels/bootloaders de ISOs
+ * de sistemas PPC (Linux PPC, Mac, etc.).
  *
  * @author Slam
  */
@@ -37,7 +62,9 @@ public class Iso9660 implements AutoCloseable {
         }
     }
 
-    /** Imagen de arranque El Torito. */
+    /**
+     * Imagen de arranque El Torito.
+     */
     public static class BootImage {
 
         public int platformId;      // 0 = x86, 1 = PowerPC, 2 = Mac, 0xEF = EFI
@@ -145,7 +172,10 @@ public class Iso9660 implements AutoCloseable {
         return out;
     }
 
-    /** Nombre largo Rock Ridge (entrada "NM") del área de uso del sistema, o null. */
+    /**
+     * Nombre largo Rock Ridge (entrada "NM") del área de uso del sistema, o
+     * null.
+     */
     private static String rockRidgeName(byte[] d, int p, int end) {
         StringBuilder sb = null;
         while (p + 4 <= end) {
@@ -164,7 +194,9 @@ public class Iso9660 implements AutoCloseable {
         return sb == null ? null : sb.toString();
     }
 
-    /** Lista un directorio ("/" = raíz). */
+    /**
+     * Lista un directorio ("/" = raíz).
+     */
     public List<Entry> list(String path) throws IOException {
         Entry e = find(path);
         if (e == null || !e.dir) {
@@ -173,7 +205,9 @@ public class Iso9660 implements AutoCloseable {
         return readDir(e.lba, e.size);
     }
 
-    /** Busca una ruta (sin distinguir mayúsculas). */
+    /**
+     * Busca una ruta (sin distinguir mayúsculas).
+     */
     public Entry find(String path) throws IOException {
         Entry cur = new Entry("/", rootLba, rootSize, true);
         for (String part : path.split("/")) {
@@ -203,7 +237,10 @@ public class Iso9660 implements AutoCloseable {
         return readExtent(e.lba, e.size);
     }
 
-    /** Primera imagen de arranque El Torito, o null si el disco no es arrancable. */
+    /**
+     * Primera imagen de arranque El Torito, o null si el disco no es
+     * arrancable.
+     */
     public BootImage elTorito() throws IOException {
         for (int lba = 17; lba < 24; lba++) {
             byte[] d = sector(lba);

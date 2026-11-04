@@ -1,3 +1,5 @@
+package pcp.utils;
+
 /*
  * The MIT License
  *
@@ -21,8 +23,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package pcp.utils;
-
 import pcp.system.ELFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;

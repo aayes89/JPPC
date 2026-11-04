@@ -1,3 +1,5 @@
+package pcp.utils;
+
 /*
  * The MIT License
  *
@@ -21,13 +23,13 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package pcp.utils;
 
 /**
  *
  * @author Slam
  */
 public class ELFSegment {
+
     // Atributos requeridos
     public long virtualAddress;  // Dirección virtual (VMA)
     public long physicalAddress; // Dirección física (LMA)
@@ -36,7 +38,7 @@ public class ELFSegment {
     public long memorySize;      // Tamaño en memoria
     public int flags;            // Flags del segmento (PF_*)
     public long align;           // Alineación del segmento
-    
+
     // Constructor para inicializar valores por defecto
     public ELFSegment() {
         virtualAddress = 0;

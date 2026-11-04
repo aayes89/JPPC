@@ -1,9 +1,4 @@
 package pcp.gpu;
-
-/**
- *
- * @author sistemas
- */
 /*
  * The MIT License
  *
@@ -27,7 +22,6 @@ package pcp.gpu;
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-
 import pcp.gpu.FrameBuffer;
 
 /**

@@ -1,3 +1,4 @@
+package pcp.cpu.Instruction;
 /*
  * The MIT License
  *
@@ -21,7 +22,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package pcp.cpu.Instruction;
 
 import pcp.cpu.CPU;
 import pcp.utils.DecodingInstr;

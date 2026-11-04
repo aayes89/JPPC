@@ -1,7 +1,9 @@
+package pcp.system;
+
 /*
  * The MIT License
  *
- * Copyright 2026 Slam.
+ * Copyright 2025 Slam.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -21,7 +23,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package pcp.system;
 
 import java.util.ArrayDeque;
 import java.util.Deque;

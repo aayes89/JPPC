@@ -1,3 +1,5 @@
+package pcp.system;
+
 /*
  * The MIT License
  *
@@ -21,7 +23,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package pcp.system;
 
 import java.util.Arrays;
 import pcp.cpu.CPU;
@@ -30,13 +31,14 @@ import pcp.cpu.CPU;
  *
  * @author Slam
  */
-
 public class MMU {
+
     private final CPU cpu;
     private final int[] batRegisters = new int[16]; // IBAT0-3, DBAT0-3 (8 pairs)
     private final int[] segmentRegisters = new int[16]; // SR0-15
 
     private static class TLBEntry {
+
         int vpn; // Virtual Page Number
         int ppn; // Physical Page Number
         boolean valid;
@@ -61,11 +63,11 @@ public class MMU {
             return virtualAddress; // Real mode
         }
         long segment = (virtualAddress >>> 28) & 0xF;
-        long sr = segmentRegisters[(int)segment];
+        long sr = segmentRegisters[(int) segment];
         if ((sr & 0x80000000) != 0) { // Direct Store Segment
             cpu.getExceptionHandler().handleException(
-                isInstruction ? ExceptionHandler.EXCEPTION_ISI : ExceptionHandler.EXCEPTION_DSI,
-                cpu.getPc(), virtualAddress
+                    isInstruction ? ExceptionHandler.EXCEPTION_ISI : ExceptionHandler.EXCEPTION_DSI,
+                    cpu.getPc(), virtualAddress
             );
             return 0;
         }
@@ -73,8 +75,8 @@ public class MMU {
         // BAT translation
         long batIndex = segment * 2 + (isInstruction ? 0 : 8);
         if (batIndex < batRegisters.length - 1) {
-            int batu = batRegisters[(int)batIndex];
-            int batl = batRegisters[(int)batIndex + 1];
+            int batu = batRegisters[(int) batIndex];
+            int batl = batRegisters[(int) batIndex + 1];
             if ((batu & 0x1) != 0) { // Valid BAT
                 int blockSize = ((batu >>> 2) & 0x1FF) | ((batu >>> 21) & 0x3FE00);
                 int mask = ~(blockSize << 17);
@@ -92,8 +94,8 @@ public class MMU {
         }
         // Translation failure
         cpu.getExceptionHandler().handleException(
-            isInstruction ? ExceptionHandler.EXCEPTION_ISI : ExceptionHandler.EXCEPTION_DSI,
-            cpu.getPc(), virtualAddress
+                isInstruction ? ExceptionHandler.EXCEPTION_ISI : ExceptionHandler.EXCEPTION_DSI,
+                cpu.getPc(), virtualAddress
         );
         return 0;
     }

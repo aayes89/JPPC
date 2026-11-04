@@ -1,3 +1,5 @@
+package pcp.cpu.Instruction;
+
 /*
  * The MIT License
  *
@@ -21,7 +23,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package pcp.cpu.Instruction;
 
 import pcp.cpu.CPU;
 import pcp.system.ExceptionHandler;
@@ -61,7 +62,7 @@ public class Arithmetics {
                 break;
             case 8:  // subfic
                 subfic(RT, RA, SI);
-                break; 
+                break;
             case 7:  // mulli
                 mulli(RT, RA, SI);
                 break;
@@ -338,7 +339,7 @@ public class Arithmetics {
     public void mulhw(int RT, int RA, int RB, boolean dot) {
         long a = cpu.getGPRVal(RA);
         long b = cpu.getGPRVal(RB);
-        long product =  a * b;
+        long product = a * b;
         int high = (int) (product >> 32);
 
         cpu.setGPR(RT, high);

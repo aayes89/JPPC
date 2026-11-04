@@ -1,3 +1,5 @@
+package pcp.gpu;
+
 /*
  * The MIT License
  *
@@ -21,7 +23,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package pcp.gpu;
 
 /**
  *
@@ -33,7 +34,10 @@ public class Console implements Device {
     private volatile java.util.function.IntConsumer listener;
     private volatile boolean echo = true;
 
-    /** Recibe cada carácter emitido (por ejemplo, para mostrarlo en una ventana). */
+    /**
+     * Recibe cada carácter emitido (por ejemplo, para mostrarlo en una
+     * ventana).
+     */
     public void setListener(java.util.function.IntConsumer l) {
         listener = l;
     }
@@ -70,7 +74,9 @@ public class Console implements Device {
         return address >= 0 && address < 4;
     }
 
-    /** Todo lo emitido hasta ahora. */
+    /**
+     * Todo lo emitido hasta ahora.
+     */
     public String getOutput() {
         synchronized (history) {
             return history.toString();

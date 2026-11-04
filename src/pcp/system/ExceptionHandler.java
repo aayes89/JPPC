@@ -1,3 +1,5 @@
+package pcp.system;
+
 /*
  * The MIT License
  *
@@ -21,8 +23,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package pcp.system;
-
 import pcp.cpu.CPU;
 import pcp.utils.DecodingInstr;
 
@@ -31,8 +31,6 @@ import pcp.utils.DecodingInstr;
  * @author Slam
  */
 public class ExceptionHandler {
-
-    
 
     private final CPU cpu;
     private boolean existException;
@@ -71,7 +69,7 @@ public class ExceptionHandler {
         switch (exceptionType) {
             case EXCEPTION_PROGRAM:
                 System.err.println("[Exception Handler] Program exception at PC=0x" + Long.toHexString(pc)
-                        + ": Unimplemented instruction 0x" + Long.toHexString(instruction));                
+                        + ": Unimplemented instruction 0x" + Long.toHexString(instruction));
 
                 // Guardar estado para depuración
                 cpu.setSrr1(cpu.getMsr());

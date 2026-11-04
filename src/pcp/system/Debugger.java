@@ -1,3 +1,5 @@
+package pcp.system;
+
 /*
  * The MIT License
  *
@@ -21,7 +23,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package pcp.system;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -121,8 +122,8 @@ public class Debugger {
     }
 
     private void disassemble(long instruction) {
-        int opcode = (int)instruction >>> 26;
-        int extendedOpcode = (int)instruction & 0x7FF;
+        int opcode = (int) instruction >>> 26;
+        int extendedOpcode = (int) instruction & 0x7FF;
 
         switch (opcode) {
             case 31: // Instrucciones extendidas

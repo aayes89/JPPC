@@ -1,3 +1,5 @@
+package pcp.utils;
+
 /*
  * The MIT License
  *
@@ -21,7 +23,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package pcp.utils;
 
 import java.util.logging.Logger;
 
@@ -347,7 +348,7 @@ public class DecodingInstr {
     public static String getMnemonic(InstructionFields fields, int instruction) {
         return switch (fields.opcode()) {
             case 0 ->
-                instruction == 0x60000000 ? "nop" : instruction == 0x323 ? "invalid_0x323" : instruction==0? "nop":" invalid!";
+                instruction == 0x60000000 ? "nop" : instruction == 0x323 ? "invalid_0x323" : instruction == 0 ? "nop" : " invalid!";
             case 1 ->
                 "tdi";
             case 2 ->
