@@ -140,6 +140,20 @@ public class SpecialInstr {
             case 287:
                 cpu.setPvr((int)value);
                 break;
+            case 528: case 529: case 530: case 531:
+            case 532: case 533: case 534: case 535:
+                cpu.getMmu().setBAT(spr - 528, (int) value);
+                break;
+            case 536: case 537: case 538: case 539:
+            case 540: case 541: case 542: case 543:
+                cpu.getMmu().setBAT(8 + spr - 536, (int) value);
+                break;
+            case 256: case 257: case 258: case 259:
+            case 260: case 261: case 262: case 263:
+            case 264: case 265: case 266: case 267:
+            case 268: case 269: case 270: case 271:
+                cpu.getMmu().setSegmentRegister(spr - 256, (int) value);
+                break;
             case 995: // SPR no estándar, provisionalmente no implementado
                 //System.out.println("mtspr: SPR 995 no implementado, valor guardado ignorado: 0x" + Integer.toHexString(value));
                 break;
@@ -218,52 +232,58 @@ public class SpecialInstr {
                 value = cpu.getTBU();
                 break;
             case 528: // 10000 10000 IBAT0U Yes
-                value = cpu.getIBAT0U();
+                value = cpu.getMmu().getBAT(0);
                 break;
             case 529: // 10000 10001 IBAT0L Yes
-                value = cpu.getIBAT0L();
+                value = cpu.getMmu().getBAT(1);
                 break;
             case 530: // 10000 10010 IBAT1U Yes
-                value = cpu.getIBAT1U();
+                value = cpu.getMmu().getBAT(2);
                 break;
             case 531: // 10000 10011 IBAT1L Yes
-                value = cpu.getIBAT1L();
+                value = cpu.getMmu().getBAT(3);
                 break;
             case 532: // 10000 10100 IBAT2U Yes
-                value = cpu.getIBAT2U();
+                value = cpu.getMmu().getBAT(4);
                 break;
             case 533: // 10000 10101 IBAT2L Yes
-                value = cpu.getIBAT2L();
+                value = cpu.getMmu().getBAT(5);
                 break;
             case 534: // 10000 10110 IBAT3U Yes
-                value = cpu.getIBAT3U();
+                value = cpu.getMmu().getBAT(6);
                 break;
             case 535: // 10000 10111 IBAT3L Yes
-                value = cpu.getIBAT3L();
+                value = cpu.getMmu().getBAT(7);
                 break;
             case 536: // 10000 11000 DBAT0U Yes
-                value = cpu.getDBAT0U();
+                value = cpu.getMmu().getBAT(8);
                 break;
             case 537: // 10000 11001 DBAT0L Yes
-                value = cpu.getDBAT0L();
+                value = cpu.getMmu().getBAT(9);
                 break;
             case 538: // 10000 11010 DBAT1U Yes
-                value = cpu.getDBAT1U();
+                value = cpu.getMmu().getBAT(10);
                 break;
             case 539: // 10000 11011 DBAT1L Yes
-                value = cpu.getDBAT1L();
+                value = cpu.getMmu().getBAT(11);
                 break;
             case 540: // 10000 11100 DBAT2U Yes
-                value = cpu.getDBAT2U();
+                value = cpu.getMmu().getBAT(12);
                 break;
             case 541: // 10000 11101 DBAT2L Yes
-                value = cpu.getDBAT2L();
+                value = cpu.getMmu().getBAT(13);
                 break;
             case 542: // 10000 11110 DBAT3U Yes
-                value = cpu.getDBAT3U();
+                value = cpu.getMmu().getBAT(14);
                 break;
             case 543: // 10000 11111 DBAT3L Yes
-                value = cpu.getDBAT3L();
+                value = cpu.getMmu().getBAT(15);
+                break;
+            case 256: case 257: case 258: case 259:
+            case 260: case 261: case 262: case 263:
+            case 264: case 265: case 266: case 267:
+            case 268: case 269: case 270: case 271:
+                value = cpu.getMmu().getSegmentRegister(spr - 256);
                 break;
             default:
                 throw new UnsupportedOperationException("[SpecialInstr] mfspr from SPR " + spr + " not implemented");

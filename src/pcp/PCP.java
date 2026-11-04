@@ -31,8 +31,8 @@ import pcp.gpu.FrameBufferPanel;
 public class PCP {
 
     public static void main(String[] args) throws Exception {
-        String path = "./src/pcp/TESTS/xenon.elf";
-        boolean elf = true, headless = false, trace = false, vram = false, mandel = false, busTrace = false;
+        String path = "./src/pcp/TESTS/fb_demo.bin";
+        boolean elf = false, headless = false, trace = false, vram = false, mandel = false, busTrace = false;
         long fbBase = -1;
         String input = null;
         java.util.List<Long> watchList = new java.util.ArrayList<>();

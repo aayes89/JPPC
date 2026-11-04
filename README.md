@@ -165,3 +165,6 @@ M8.0 inicia la consolidación del núcleo con una prueba de regresión específi
 ## M8.1 — SPR, Time Base y Decrementer
 
 M8.1 corrige la lectura de TBL/TBU mediante `mfspr`, conserva los patrones completos de 32 bits escritos en DEC y modela la excepción por underflow del Decrementer. La prueba `pcp.TESTS.XenonTimebaseSelfTest` valida estos comportamientos ejecutando instrucciones sobre la CPU emulada. Consulta `M8.1-REPORT.md` para alcance, límites y resultados de regresión.
+## Milestone M8.2
+
+La MMU incorpora traducción BAT clásica para IBAT/DBAT, acceso SPR a BAT y SR, y pruebas deterministas. Ver `M8.2-REPORT.md` para alcance y limitaciones.

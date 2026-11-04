@@ -61,27 +61,36 @@ public class MMU {
             return virtualAddress; // Real mode
         }
         long segment = (virtualAddress >>> 28) & 0xF;
-        long sr = segmentRegisters[(int)segment];
-        if ((sr & 0x80000000) != 0) { // Direct Store Segment
-            cpu.getExceptionHandler().handleException(
-                isInstruction ? ExceptionHandler.EXCEPTION_ISI : ExceptionHandler.EXCEPTION_DSI,
-                cpu.getPc(), virtualAddress
-            );
+        int sr = segmentRegisters[(int) segment];
+        if ((sr & 0x80000000) != 0) { // Direct-Store segment: unsupported by this MMU model.
+            raiseTranslationException(isInstruction, virtualAddress);
             return 0;
         }
-        long vsid = sr & 0xFFFFFF;
-        // BAT translation
-        long batIndex = segment * 2 + (isInstruction ? 0 : 8);
-        if (batIndex < batRegisters.length - 1) {
-            int batu = batRegisters[(int)batIndex];
-            int batl = batRegisters[(int)batIndex + 1];
-            if ((batu & 0x1) != 0) { // Valid BAT
-                int blockSize = ((batu >>> 2) & 0x1FF) | ((batu >>> 21) & 0x3FE00);
-                int mask = ~(blockSize << 17);
-                int basePhysical = batl & 0xFFFFF000;
-                long offset = virtualAddress & 0x0FFFFFFF;
-                return basePhysical | (offset & mask);
+        int vsid = sr & 0x00FFFFFF;
+
+        // BATs are global effective-address ranges, not indexed by segment number.
+        // Layout: IBAT0U/L..IBAT3U/L at [0..7], DBAT0U/L..DBAT3U/L at [8..15].
+        int first = isInstruction ? 0 : 8;
+        boolean problemState = (cpu.getMsr() & CPU.MSR_PR) != 0;
+        for (int i = 0; i < 4; i++) {
+            int batu = batRegisters[first + i * 2];
+            int batl = batRegisters[first + i * 2 + 1];
+            int validBit = problemState ? 1 : 2; // BATU[Vp] / BATU[Vs]
+            if ((batu & validBit) == 0) {
+                continue;
             }
+
+            // BATU[BL] encodes a contiguous run of low-order block-mask bits.
+            long blockMask = ((((long) batu >>> 2) & 0x1FFL) << 17) | 0x1FFFFL;
+            long effectiveBase = (batu & 0xFFFE0000L) & ~blockMask;
+            long effective = virtualAddress & 0xFFFFFFFFL;
+            if ((effective & ~blockMask) != effectiveBase) {
+                continue;
+            }
+
+            // BATL[BRPN] supplies the physical block base; preserve the offset.
+            long physicalBase = (batl & 0xFFFE0000L) & ~blockMask;
+            return (physicalBase | (effective & blockMask)) & 0xFFFFFFFFL;
         }
         // TLB translation
         long vpn = (virtualAddress >>> 12) & 0xFFFF;
@@ -91,11 +100,15 @@ public class MMU {
             }
         }
         // Translation failure
+        raiseTranslationException(isInstruction, virtualAddress);
+        return 0;
+    }
+
+    private void raiseTranslationException(boolean isInstruction, long address) {
         cpu.getExceptionHandler().handleException(
             isInstruction ? ExceptionHandler.EXCEPTION_ISI : ExceptionHandler.EXCEPTION_DSI,
-            cpu.getPc(), virtualAddress
+            cpu.getPc(), address
         );
-        return 0;
     }
 
     public void setBAT(int index, int value) {
