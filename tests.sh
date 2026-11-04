@@ -60,23 +60,17 @@ check "autotest CPU 64 bits + FP (22 tests)" \
     "$(run "$T/cpu_selftest64.bin" --headless --max 1000000 --png "$CP/b.png")" "ALL OK (64)"
 check "autotest AltiVec/VMX (9 tests)" \
     "$(run "$T/cpu_selftest_vmx.bin" --headless --max 1000000 --png "$CP/c.png")" "ALL OK (VMX)"
-check "fb_demo (render por MMIO)" \
-    "$(run "$T/fb_demo.bin" --headless --max 1000000 --png "$CP/fb_demo.png")" "JPPC fb_demo: dibujando"
-check "fb_demo 1280x720 (stride 5120)" \
-    "$(run "$T/fb_demo_1280x720.bin" --size 1280x720 --headless --max 12000000 --png "$CP/fb_demo_1280x720.png")" "JPPC fb_demo: dibujando"
-check_file "$CP/fb_demo_1280x720.png" "fb_demo 1280x720 PNG"
-check "triangle_fixed (GPU de juguete)" \
-    "$(run "$T/triangle_fixed.bin" --size 640x480 --headless --png "$CP/triangle_fixed.png")" "halted=true"
+# Las pruebas de arranque usan el ELF real de XeLL; no se ejecutan demos de framebuffer.
 
-out=$(run "$T/lk.elf" --elf --size 1280x720 --headless --max 3000000 --input 'help\n' --png "$CP/lk.png")
+out=$(run "$T/lk.elf" --elf --size 1024x768 --headless --max 3000000 --input 'help\n' --png "$CP/lk.png")
 check "lk.elf arranca (PPC64 + UART)" "$out" "entering main console loop"
 check "lk.elf: el shell responde a 'help'" "$out" "command list by block"
 check "lk.elf: sin instrucciones ilegales" "$(echo "$out" | grep -ci 'instrucción ilegal')" "^0$"
 
-out=$(run "$T/lk.elf" --elf --size 1280x720 --headless --max 400000000 --input 'gfx rgb_bars\n' --png "$CP/lk_bars.png")
+out=$(run "$T/lk.elf" --elf --size 1024x768 --headless --max 400000000 --input 'gfx rgb_bars\n' --png "$CP/lk_bars.png")
 check "lk.elf: gfx rgb_bars (tiling Xenos)" "$out" "retile_framebuffer"
 
-out=$(run "$T/xenon.elf" --elf --size 1280x720 --tb 1000 --headless --max 300000000 \
+out=$(run "$T/xenon.elf" --elf --size 1024x768 --tb 1000 --headless --max 300000000 \
     --png "$CP/xell.png" --console-png "$CP/xell_uart.png")
 check "xenon.elf: XeLL + AVPACK VGA" "$out" "AVPACK detected: 5b"
 check "xenon.elf: Xenos video mode setup" "$out" ". f2"

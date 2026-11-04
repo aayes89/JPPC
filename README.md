@@ -120,9 +120,9 @@ Audita la identidad de un ELF antes de comparar capturas: `java -cp dist/PCP.jar
 
 Para trazar exclusivamente el bloque MMIO que detiene el arranque: `--bus-range 0xEA001300:0xEA0013FF` (activa automáticamente `--bus`). La traza no fuerza bits ni sintetiza una respuesta USB. Ver `M7.2-REPORT.md`.
 
-## Resolución 1280x720 (M7.4)
+## Resolución 1024x768 (M7.4)
 
-La resolución predeterminada de PCP es ahora 1280x720. Para probar el framebuffer lineal con stride correcto:
+La resolución predeterminada de PCP es ahora 1024x768. Para probar el framebuffer lineal con stride correcto:
 
 ```bash
 ./run.sh demo720
@@ -134,11 +134,11 @@ El demo original 800x600 se conserva:
 ./run.sh demo800
 ```
 
-`./run.sh xell` usa ventana/framebuffer 1280x720. En ELF Xenon, la superficie se reubica cuando XeLL escribe D1GRPH_PRIMARY_SURFACE_ADDRESS; el renderer conserva la VRAM tiled y el PNG se genera desde esa VRAM, no desde UART.
+`./run.sh xell` usa ventana/framebuffer 1024x768. En ELF Xenon, la superficie se reubica cuando XeLL escribe D1GRPH_PRIMARY_SURFACE_ADDRESS; el renderer conserva la VRAM tiled y el PNG se genera desde esa VRAM, no desde UART.
 
 ## Milestone M7.6 — USB MMIO identification
 
-See `M7.6-REPORT.md`. This iteration deliberately does not map `0xEA001300` as a standard OHCI block: a controlled OHCI experiment regressed XeLL to `PC=0x8000BA08`, so the speculative device was removed. The reproducible bus trace and the remaining wait condition are documented in the report. Target display remains 1280x720; framebuffer and UART captures are separate.
+See `M7.6-REPORT.md`. This iteration deliberately does not map `0xEA001300` as a standard OHCI block: a controlled OHCI experiment regressed XeLL to `PC=0x8000BA08`, so the speculative device was removed. The reproducible bus trace and the remaining wait condition are documented in the report. Target display remains 1024x768; framebuffer and UART captures are separate.
 
 
 ## Milestone M7.7 — SATA/ATAPI y SFCX con imagen real
@@ -172,3 +172,8 @@ La MMU incorpora traducción BAT clásica para IBAT/DBAT, acceso SPR a BAT y SR,
 ## Milestone M8.3 — DSI/ISI exception entry
 
 M8.3 unifica la entrada de excepciones de almacenamiento e instrucción entre MMU y CPU. DSI conserva EA en DAR y distingue escrituras en DSISR; ISI utiliza su vector arquitectónico. La prueba `XenonExceptionSelfTest` valida el estado básico. La MMU sigue siendo parcial y este milestone no demuestra recuperación completa ni arranque de 1BL. Ver `M8.3-REPORT.md`.
+
+
+## M8.4 — MMU Translation Fault Containment
+
+Ver `M8.4-REPORT.md`. La resolución predeterminada y `run.sh xell` son 1024x768. La regresión de esta configuración ejecuta LK y `xenon.elf`; no invoca `fb_demo` ni `triangle_fixed`. Los fallos de traducción DSI/ISI abortan el acceso en lugar de devolver PA=0.

@@ -32,6 +32,23 @@ import pcp.cpu.CPU;
  */
 
 public class MMU {
+    /** Falla de traducción: la instrucción que la originó no debe acceder al bus. */
+    public static final class TranslationFault extends RuntimeException {
+        private final long effectiveAddress;
+        private final boolean instruction;
+        private final boolean write;
+
+        public TranslationFault(long effectiveAddress, boolean instruction, boolean write) {
+            super("MMU translation fault: EA=0x" + Long.toHexString(effectiveAddress)
+                    + (instruction ? " instruction" : write ? " write" : " read"));
+            this.effectiveAddress = effectiveAddress;
+            this.instruction = instruction;
+            this.write = write;
+        }
+        public long getEffectiveAddress() { return effectiveAddress; }
+        public boolean isInstruction() { return instruction; }
+        public boolean isWrite() { return write; }
+    }
     private final CPU cpu;
     private final int[] batRegisters = new int[16]; // IBAT0-3, DBAT0-3 (8 pairs)
     private final int[] segmentRegisters = new int[16]; // SR0-15
@@ -64,7 +81,7 @@ public class MMU {
         int sr = segmentRegisters[(int) segment];
         if ((sr & 0x80000000) != 0) { // Direct-Store segment: unsupported by this MMU model.
             raiseTranslationException(isInstruction, virtualAddress, isWrite);
-            return 0;
+            throw new TranslationFault(virtualAddress, isInstruction, isWrite);
         }
         int vsid = sr & 0x00FFFFFF;
 
@@ -101,7 +118,7 @@ public class MMU {
         }
         // Translation failure
         raiseTranslationException(isInstruction, virtualAddress, isWrite);
-        return 0;
+        throw new TranslationFault(virtualAddress, isInstruction, isWrite);
     }
 
     private void raiseTranslationException(boolean isInstruction, long address, boolean isWrite) {

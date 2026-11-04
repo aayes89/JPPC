@@ -34,9 +34,14 @@ public final class XenonMmuSelfTest {
         long dataPA = cpu.getMmu().translateAddress(0x901ABCDE, false, false);
         require(dataPA == 0x101ABCDEL, "DBAT0 debe traducir datos con su propio par");
 
-        // Dirección fuera del bloque no debe coincidir con BAT0.
-        long outsidePA = cpu.getMmu().translateAddress(0x81000000L, false, true);
-        require(outsidePA == 0L, "BAT no debe hacer match fuera del bloque (fallo de traducción devuelve 0)");
+        // Dirección fuera del bloque debe abortar, nunca convertirse en PA=0.
+        boolean faulted = false;
+        try {
+            cpu.getMmu().translateAddress(0x81000000L, false, true);
+        } catch (pcp.system.MMU.TranslationFault expected) {
+            faulted = expected.getEffectiveAddress() == 0x81000000L && expected.isInstruction();
+        }
+        require(faulted, "fallo BAT debe abortar la traducción y conservar la EA");
 
         // Los registros BAT y SR se mantienen direccionables por índice.
         require(cpu.getMmu().getBAT(0) == (0x80000000 | (0x7F << 2) | 0x2), "lectura IBAT0U");

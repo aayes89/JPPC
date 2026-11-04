@@ -725,6 +725,9 @@ public class CPU {
                 default:
                     illegal(insn);
             }
+        } catch (MMU.TranslationFault fault) {
+            // La MMU ya entregó DSI/ISI y fijó DAR/DSISR. No ejecutar acceso físico ni
+            // convertir el fallo de almacenamiento en una excepción de programa.
         } catch (RuntimeException e) {
             System.err.println("[CPU] Error ejecutando 0x" + Integer.toHexString(insn) + " en PC=0x"
                     + Long.toHexString(pc) + ": " + e);
@@ -1457,7 +1460,16 @@ public class CPU {
         if (!watchPcs.isEmpty() && watchPcs.contains(pc & 0x1FFFFFFFL)) {
             watchDump();
         }
-        int insn = fetchInstruction();
+        int insn;
+        try {
+            insn = fetchInstruction();
+        } catch (MMU.TranslationFault fault) {
+            // ISI ya fue entregada por la MMU; no decodificar una instrucción sustituta.
+            pc = nextPc & M32;
+            tick();
+            checkInterrupts();
+            return;
+        }
         if (haltOnSelfBranch && insn == 0x48000000) {
             System.out.println("[CPU] Halt: 'b .' en PC=0x" + Long.toHexString(pc));
             halted = true;

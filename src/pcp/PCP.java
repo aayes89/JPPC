@@ -12,7 +12,7 @@ import pcp.gpu.FrameBufferPanel;
  * Uso: java pcp.PCP [archivo] [opciones]
  *   --elf            el archivo es un ELF de PowerPC (por defecto: binario plano en 0x0)
  *   --load 0xADDR    dirección de carga del binario plano
- *   --size WxH       resolución del framebuffer (por defecto 1280x720)
+ *   --size WxH       resolución del framebuffer (por defecto 1024x768)
  *   --headless       sin ventana: ejecuta, guarda PNG y termina
  *   --png salida.png archivo PNG en modo headless (por defecto fb.png)
  *   --console-png salida.png captura UART como terminal de diagnóstico
@@ -31,15 +31,15 @@ import pcp.gpu.FrameBufferPanel;
 public class PCP {
 
     public static void main(String[] args) throws Exception {
-        String path = "./src/pcp/TESTS/fb_demo.bin";
-        boolean elf = false, headless = false, trace = false, vram = false, mandel = false, busTrace = false;
+        String path = "./src/pcp/TESTS/xenon.elf";
+        boolean elf = true, headless = false, trace = false, vram = false, mandel = false, busTrace = false;
         long fbBase = -1;
         String input = null;
         java.util.List<Long> watchList = new java.util.ArrayList<>();
         int threads = -1;
         long tb = -1;
         long load = 0, max = 50_000_000L;
-        int w = 1280, h = 720;
+        int w = 1024, h = 768;
         String png = "fb.png";
         String consolePng = null;
         String nandPath = null;
