@@ -28,6 +28,8 @@ run() {
 
 check "Bus RAM alias + MMIO big-endian" \
     "$(java -cp "$CP" pcp.TESTS.BusMappingSelfTest 2>&1)" "Bus mapping/alias/MMIO endian: ALL OK"
+check "Xenon SPR TBL/TBU + Time Base + DEC underflow" \
+    "$(java -cp "$CP" pcp.TESTS.XenonTimebaseSelfTest 2>&1)" "Xenon Time Base/Decrementer: ALL OK"
 check "SATA/ATAPI virtual DVD sin medio" \
     "$(java -Xmx1g -cp "$CP" pcp.TESTS.XenonSataSelfTest 2>&1)" "Xenon SATA/ATAPI: ALL OK"
 if [ -n "${JPPC_TEST_NAND:-}" ]; then

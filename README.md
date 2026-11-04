@@ -161,3 +161,7 @@ Se documenta la secuencia de dos etapas (splash XeLL Reloaded y stage 2 Auto-Dum
 ## Milestone M8.0 — Xenon Core Compatibility Foundation
 
 M8.0 inicia la consolidación del núcleo con una prueba de regresión específica del bus: alias real-mode de RAM (`0x80000000 + X`), MMIO y endianness big-endian. Ejecuta `./run.sh test` para compilar y lanzar la suite. El alcance, límites técnicos y orden de trabajo están documentados en `M8.0-REPORT.md`.
+
+## M8.1 — SPR, Time Base y Decrementer
+
+M8.1 corrige la lectura de TBL/TBU mediante `mfspr`, conserva los patrones completos de 32 bits escritos en DEC y modela la excepción por underflow del Decrementer. La prueba `pcp.TESTS.XenonTimebaseSelfTest` valida estos comportamientos ejecutando instrucciones sobre la CPU emulada. Consulta `M8.1-REPORT.md` para alcance, límites y resultados de regresión.

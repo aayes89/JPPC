@@ -39,7 +39,7 @@ public class PCP {
         int threads = -1;
         long tb = -1;
         long load = 0, max = 50_000_000L;
-        int w = 1024, h = 768;
+        int w = 1280, h = 720;
         String png = "fb.png";
         String consolePng = null;
         String nandPath = null;

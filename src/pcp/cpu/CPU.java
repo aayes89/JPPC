@@ -408,8 +408,8 @@ public class CPU {
             case 25: return SDR1 & M32;
             case 26: return srr0;
             case 27: return srr1;
-            case 268: case 284: return timeBase;
-            case 269: case 285: return timeBase >>> 32;
+            case 268: case 284: return timeBase & M32; // TBL: 32 bits inferiores
+            case 269: case 285: return (timeBase >>> 32) & M32; // TBU: 32 bits superiores
             case 272: return sprg0 & M32;
             case 273: return sprg1 & M32;
             case 274: return sprg2 & M32;
@@ -1506,15 +1506,17 @@ public class CPU {
     }
 
     public void tick() {
-        timeBase += tbIncrement; // Time Base (64 bits)
+        timeBase += tbIncrement;
         TBU = (int) (timeBase >>> 32);
         TBL = (int) timeBase;
-        if (dec > 0) {
-            dec--;
-            dec = Math.max(0, dec - (int) Math.min(tbIncrement - 1, dec));
-            if (dec == 0) {
-                decPending = true;
-            }
+
+        // DEC es un contador descendente de 32 bits. La excepción se genera
+        // cuando el contador cruza de no-negativo a negativo (underflow), no
+        // cuando alcanza cero. La aritmética debe conservar el wrap de 32 bits.
+        int previous = dec;
+        dec -= (int) tbIncrement;
+        if (previous >= 0 && dec < 0) {
+            decPending = true;
         }
     }
 
@@ -1719,11 +1721,10 @@ public class CPU {
     }
 
     public void setDec(int dec) {
+        // El registro contiene un patrón de 32 bits sin signo; conservar
+        // también valores con el bit 31 activo es necesario para modelar DEC.
         this.dec = dec;
-        if (this.dec < 0) {
-            this.dec = 0;
-        }
-
+        this.decPending = false;
     }
 
     public boolean isInterrupt() {
