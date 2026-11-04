@@ -1,4 +1,3 @@
-package pcp.cpu.Instruction;
 /*
  * The MIT License
  *
@@ -22,6 +21,7 @@ package pcp.cpu.Instruction;
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+package pcp.cpu.Instruction;
 
 import pcp.cpu.CPU;
 

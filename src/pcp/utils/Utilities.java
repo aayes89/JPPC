@@ -1,5 +1,3 @@
-package pcp.utils;
-
 /*
  * The MIT License
  *
@@ -23,13 +21,14 @@ package pcp.utils;
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+package pcp.utils;
 
 /**
  *
  * @author Slam
  */
-public class Utilities {
 
+public class Utilities {
     public static int MaskFromMBME32(int MB, int ME) {
         if (MB <= ME) {
             // Máscara continua

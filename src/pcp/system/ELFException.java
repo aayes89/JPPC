@@ -1,5 +1,3 @@
-package pcp.system;
-
 /*
  * The MIT License
  *
@@ -23,21 +21,21 @@ package pcp.system;
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+package pcp.system;
 
 /**
  *
  * @author Slam
  */
 public class ELFException extends Exception {
-
     public ELFException(String message) {
         super(message);
     }
-
+    
     public ELFException(String message, Throwable cause) {
         super(message, cause);
     }
-
+    
     public ELFException(Throwable cause) {
         super(cause);
     }

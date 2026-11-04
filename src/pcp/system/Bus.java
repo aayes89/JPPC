@@ -1,28 +1,9 @@
-package pcp.system;
-
 /*
  * The MIT License
  *
  * Copyright 2025 Slam.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
  */
+package pcp.system;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,17 +41,12 @@ public class Bus {
     private long traceEnd = ADDR_MASK;
     private final java.util.Map<String, Integer> seen = new java.util.HashMap<>();
 
-    /**
-     * Registra accesos a direcciones sin dispositivo fuera de la RAM (para
-     * descubrir el hardware que espera el firmware).
-     */
+    /** Registra accesos a direcciones sin dispositivo fuera de la RAM (para descubrir el hardware que espera el firmware). */
     public void setTraceUnmapped(boolean t) {
         traceUnmapped = t;
     }
 
-    /**
-     * Limita la traza MMIO a un rango inclusivo de direcciones físicas.
-     */
+    /** Limita la traza MMIO a un rango inclusivo de direcciones físicas. */
     public void setTraceRange(long start, long end) {
         start &= ADDR_MASK;
         end &= ADDR_MASK;
@@ -110,10 +86,7 @@ public class Bus {
         devices.add(new DeviceMapping(device, startAddress & ADDR_MASK, endAddress & ADDR_MASK));
     }
 
-    /**
-     * Cambia la ventana de un dispositivo ya conectado (p. ej. el framebuffer
-     * cuando la GPU cambia su superficie).
-     */
+    /** Cambia la ventana de un dispositivo ya conectado (p. ej. el framebuffer cuando la GPU cambia su superficie). */
     public void moveDevice(Device device, long startAddress, long endAddress) {
         for (DeviceMapping m : devices) {
             if (m.device == device) {
@@ -123,10 +96,7 @@ public class Bus {
         }
     }
 
-    /**
-     * 0x80000000|dirección-física es el espejo "real mode" de la dirección
-     * física (< 512 MB).
-     */
+    /** 0x80000000|dirección-física es el espejo "real mode" de la dirección física (< 512 MB). */
     private static long canon(long address) {
         return (address >= 0x80000000L && address < 0xA0000000L) ? (address & 0x1FFFFFFFL) : address;
     }

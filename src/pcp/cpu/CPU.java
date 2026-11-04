@@ -1,5 +1,3 @@
-package pcp.cpu;
-
 /*
  * The MIT License
  *
@@ -23,6 +21,7 @@ package pcp.cpu;
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+package pcp.cpu;
 
 import pcp.system.ExceptionHandler;
 import pcp.system.MMU;
@@ -203,10 +202,7 @@ public class CPU {
 
     private static final long MSR_SF = 0x8000000000000000L;
 
-    /**
-     * MSR[SF]: modo de 64 bits. Con SF=0 las comparaciones, CR0,
-     * acarreo/overflow y CTR usan 32 bits.
-     */
+    /** MSR[SF]: modo de 64 bits. Con SF=0 las comparaciones, CR0, acarreo/overflow y CTR usan 32 bits. */
     private boolean sf() {
         return (msr & MSR_SF) != 0;
     }
@@ -249,9 +245,7 @@ public class CPU {
         xer = ov ? (xer | 0xC0000000L) : (xer & ~0x40000000L);
     }
 
-    /**
-     * Máscara con numeración PowerPC de 64 bits (bit 0 = MSB).
-     */
+    /** Máscara con numeración PowerPC de 64 bits (bit 0 = MSB). */
     private static long mask64(int mb, int me) {
         long a = -1L >>> mb;
         long b = -1L << (63 - me);
@@ -260,36 +254,16 @@ public class CPU {
 
     private static boolean isXOArith(int x9) {
         switch (x9) {
-            case 8:
-            case 9:
-            case 10:
-            case 11:
-            case 40:
-            case 73:
-            case 75:
-            case 104:
-            case 136:
-            case 138:
-            case 200:
-            case 202:
-            case 232:
-            case 233:
-            case 234:
-            case 235:
-            case 266:
-            case 457:
-            case 459:
-            case 489:
-            case 491:
+            case 8: case 9: case 10: case 11: case 40: case 73: case 75: case 104: case 136: case 138:
+            case 200: case 202: case 232: case 233: case 234: case 235: case 266: case 457: case 459:
+            case 489: case 491:
                 return true;
             default:
                 return false;
         }
     }
 
-    /**
-     * rD = a + b + cin (64 bits) con carry/overflow/Rc opcionales.
-     */
+    /** rD = a + b + cin (64 bits) con carry/overflow/Rc opcionales. */
     private void arith(int rd, long a, long b, int cin, boolean setCA, boolean oe, boolean rc) {
         if (!sf()) { // modo de 32 bits
             long t = (a & M32) + (b & M32) + cin;
@@ -342,9 +316,7 @@ public class CPU {
         writeMemoryWord(ea + 4, v & M32);
     }
 
-    /**
-     * size: 1,2,4,8. sign: extensión de signo (lha/lwa).
-     */
+    /** size: 1,2,4,8. sign: extensión de signo (lha/lwa). */
     private void doLoad(int size, boolean sign, int rd, long ea) {
         long v;
         switch (size) {
@@ -395,10 +367,7 @@ public class CPU {
         return pir;
     }
 
-    /**
-     * true entre un lwarx/ldarx y su stwcx./stdcx. (el planificador no debe
-     * cambiar de hilo ahí).
-     */
+    /** true entre un lwarx/ldarx y su stwcx./stdcx. (el planificador no debe cambiar de hilo ahí). */
     public boolean hasReservation() {
         return reserveAddress != -1;
     }
@@ -408,10 +377,7 @@ public class CPU {
 
     private final java.util.Set<Long> watchPcs = new java.util.HashSet<>();
 
-    /**
-     * Diagnóstico: imprime registros cada vez que el PC alcanza esta dirección
-     * (se compara con los 32 bits bajos).
-     */
+    /** Diagnóstico: imprime registros cada vez que el PC alcanza esta dirección (se compara con los 32 bits bajos). */
     public void addWatchPc(long a) {
         watchPcs.add(a & 0xFFFFFFFFL & 0x1FFFFFFFL);
     }
@@ -433,42 +399,23 @@ public class CPU {
 
     private long getSPR(int spr) {
         switch (spr) {
-            case 1:
-                return xer;
-            case 8:
-                return lr;
-            case 9:
-                return ctr;
-            case 18:
-                return dsisr;
-            case 19:
-                return dar;
-            case 22:
-                return dec & M32;
-            case 25:
-                return SDR1 & M32;
-            case 26:
-                return srr0;
-            case 27:
-                return srr1;
-            case 268:
-            case 284:
-                return timeBase;
-            case 269:
-            case 285:
-                return timeBase >>> 32;
-            case 272:
-                return sprg0 & M32;
-            case 273:
-                return sprg1 & M32;
-            case 274:
-                return sprg2 & M32;
-            case 275:
-                return sprg3 & M32;
-            case 287:
-                return pvr & M32;
-            case 1023:
-                return pir; // PIR: índice del hilo hardware
+            case 1: return xer;
+            case 8: return lr;
+            case 9: return ctr;
+            case 18: return dsisr;
+            case 19: return dar;
+            case 22: return dec & M32;
+            case 25: return SDR1 & M32;
+            case 26: return srr0;
+            case 27: return srr1;
+            case 268: case 284: return timeBase;
+            case 269: case 285: return timeBase >>> 32;
+            case 272: return sprg0 & M32;
+            case 273: return sprg1 & M32;
+            case 274: return sprg2 & M32;
+            case 275: return sprg3 & M32;
+            case 287: return pvr & M32;
+            case 1023: return pir; // PIR: índice del hilo hardware
             default:
                 sprLog("mfspr", spr, spr >= 0 && spr < sprOther.length ? sprOther[spr] : 0);
                 return spr >= 0 && spr < sprOther.length ? sprOther[spr] : 0;
@@ -477,52 +424,21 @@ public class CPU {
 
     private void setSPR(int spr, long v) {
         switch (spr) {
-            case 1:
-                xer = v & M32;
-                break;
-            case 8:
-                lr = v;
-                break;
-            case 9:
-                ctr = v;
-                break;
-            case 18:
-                dsisr = v & M32;
-                break;
-            case 19:
-                dar = v;
-                break;
-            case 22:
-                dec = (int) v;
-                decPending = false;
-                break;
-            case 25:
-                SDR1 = (int) v;
-                break;
-            case 26:
-                srr0 = v;
-                break;
-            case 27:
-                srr1 = v;
-                break;
-            case 272:
-                sprg0 = (int) v;
-                break;
-            case 273:
-                sprg1 = (int) v;
-                break;
-            case 274:
-                sprg2 = (int) v;
-                break;
-            case 275:
-                sprg3 = (int) v;
-                break;
-            case 284:
-                timeBase = (timeBase & ~M32) | (v & M32);
-                break;
-            case 285:
-                timeBase = (timeBase & M32) | (v << 32);
-                break;
+            case 1: xer = v & M32; break;
+            case 8: lr = v; break;
+            case 9: ctr = v; break;
+            case 18: dsisr = v & M32; break;
+            case 19: dar = v; break;
+            case 22: dec = (int) v; decPending = false; break;
+            case 25: SDR1 = (int) v; break;
+            case 26: srr0 = v; break;
+            case 27: srr1 = v; break;
+            case 272: sprg0 = (int) v; break;
+            case 273: sprg1 = (int) v; break;
+            case 274: sprg2 = (int) v; break;
+            case 275: sprg3 = (int) v; break;
+            case 284: timeBase = (timeBase & ~M32) | (v & M32); break;
+            case 285: timeBase = (timeBase & M32) | (v << 32); break;
             default:
                 sprLog("mtspr", spr, v);
                 if (spr >= 0 && spr < sprOther.length) {
@@ -531,9 +447,7 @@ public class CPU {
         }
     }
 
-    /**
-     * kind: 0 = bc, 1 = bclr, 2 = bcctr
-     */
+    /** kind: 0 = bc, 1 = bclr, 2 = bcctr */
     private void branchConditional(int insn, int kind) {
         int bo = (insn >>> 21) & 31, bi = (insn >>> 16) & 31;
         if ((bo & 4) == 0) {
@@ -559,9 +473,7 @@ public class CPU {
         }
     }
 
-    /**
-     * Entrada de excepción PowerPC. savedPc = valor para SRR0.
-     */
+    /** Entrada de excepción PowerPC. savedPc = valor para SRR0. */
     private void takeException(int vector, long savedPc, long extra) {
         srr0 = savedPc;
         srr1 = (msr & ~0xFFFFL) | (msr & 0xFFFFL) | extra;
@@ -661,51 +573,29 @@ public class CPU {
                 case 19: {
                     int xo = (insn >>> 1) & 0x3FF;
                     switch (xo) {
-                        case 16:
-                            branchConditional(insn, 1);
-                            break;   // bclr
-                        case 528:
-                            branchConditional(insn, 2);
-                            break;  // bcctr
+                        case 16: branchConditional(insn, 1); break;   // bclr
+                        case 528: branchConditional(insn, 2); break;  // bcctr
                         case 50: // rfi
                         case 18: // rfid
                             nextPc = srr0 & ~3L & M32;
                             msr = srr1;
                             interruptMode = false;
                             break;
-                        case 150:
-                            break; // isync
+                        case 150: break; // isync
                         case 0: { // mcrf
                             int src = (int) getCrField((insn >>> 18) & 7);
                             crSetField((insn >>> 23) & 7, src);
                             break;
                         }
-                        case 257:
-                            crSetBit(rd, crBit(ra) & crBit(rb));
-                            break;        // crand
-                        case 129:
-                            crSetBit(rd, crBit(ra) & ~crBit(rb));
-                            break;       // crandc
-                        case 289:
-                            crSetBit(rd, ~(crBit(ra) ^ crBit(rb)));
-                            break;     // creqv
-                        case 225:
-                            crSetBit(rd, ~(crBit(ra) & crBit(rb)));
-                            break;     // crnand
-                        case 33:
-                            crSetBit(rd, ~(crBit(ra) | crBit(rb)));
-                            break;      // crnor
-                        case 449:
-                            crSetBit(rd, crBit(ra) | crBit(rb));
-                            break;        // cror
-                        case 417:
-                            crSetBit(rd, crBit(ra) | ~crBit(rb));
-                            break;       // crorc
-                        case 193:
-                            crSetBit(rd, crBit(ra) ^ crBit(rb));
-                            break;        // crxor
-                        default:
-                            illegal(insn);
+                        case 257: crSetBit(rd, crBit(ra) & crBit(rb)); break;        // crand
+                        case 129: crSetBit(rd, crBit(ra) & ~crBit(rb)); break;       // crandc
+                        case 289: crSetBit(rd, ~(crBit(ra) ^ crBit(rb))); break;     // creqv
+                        case 225: crSetBit(rd, ~(crBit(ra) & crBit(rb))); break;     // crnand
+                        case 33: crSetBit(rd, ~(crBit(ra) | crBit(rb))); break;      // crnor
+                        case 449: crSetBit(rd, crBit(ra) | crBit(rb)); break;        // cror
+                        case 417: crSetBit(rd, crBit(ra) | ~crBit(rb)); break;       // crorc
+                        case 193: crSetBit(rd, crBit(ra) ^ crBit(rb)); break;        // crxor
+                        default: illegal(insn);
                     }
                     break;
                 }
@@ -715,9 +605,7 @@ public class CPU {
                     long rr = (rot & M32) | ((long) rot << 32);
                     long v = (rr & m) | (r(ra) & ~m);
                     w(ra, v);
-                    if (rc) {
-                        cr0(v);
-                    }
+                    if (rc) cr0(v);
                     break;
                 }
                 case 21: { // rlwinm
@@ -725,9 +613,7 @@ public class CPU {
                     int rot = Integer.rotateLeft((int) r(rd), rb);
                     long v = ((rot & M32) | ((long) rot << 32)) & m;
                     w(ra, v);
-                    if (rc) {
-                        cr0(v);
-                    }
+                    if (rc) cr0(v);
                     break;
                 }
                 case 23: { // rlwnm
@@ -735,104 +621,35 @@ public class CPU {
                     int rot = Integer.rotateLeft((int) r(rd), (int) (r(rb) & 31));
                     long v = ((rot & M32) | ((long) rot << 32)) & m;
                     w(ra, v);
-                    if (rc) {
-                        cr0(v);
-                    }
+                    if (rc) cr0(v);
                     break;
                 }
-                case 24:
-                    w(ra, r(rd) | uimm);
-                    break;                  // ori
-                case 25:
-                    w(ra, r(rd) | (uimm << 16));
-                    break;          // oris
-                case 26:
-                    w(ra, r(rd) ^ uimm);
-                    break;                  // xori
-                case 27:
-                    w(ra, r(rd) ^ (uimm << 16));
-                    break;          // xoris
-                case 28: {
-                    long v = r(rd) & uimm;
-                    w(ra, v);
-                    cr0(v);
-                    break;
-                }           // andi.
-                case 29: {
-                    long v = r(rd) & (uimm << 16);
-                    w(ra, v);
-                    cr0(v);
-                    break;
-                }   // andis.
+                case 24: w(ra, r(rd) | uimm); break;                  // ori
+                case 25: w(ra, r(rd) | (uimm << 16)); break;          // oris
+                case 26: w(ra, r(rd) ^ uimm); break;                  // xori
+                case 27: w(ra, r(rd) ^ (uimm << 16)); break;          // xoris
+                case 28: { long v = r(rd) & uimm; w(ra, v); cr0(v); break; }           // andi.
+                case 29: { long v = r(rd) & (uimm << 16); w(ra, v); cr0(v); break; }   // andis.
                 case 30:
                     execRotate64(insn, rd, ra, rb, rc);
                     break;
                 case 31:
                     execOp31(insn, rd, ra, rb, rc);
                     break;
-                case 32:
-                    doLoad(4, false, rd, ea(ra, simm));
-                    break;                    // lwz
-                case 33: {
-                    long e = ea(ra, simm);
-                    doLoad(4, false, rd, e);
-                    w(ra, e);
-                    break;
-                } // lwzu
-                case 34:
-                    doLoad(1, false, rd, ea(ra, simm));
-                    break;                    // lbz
-                case 35: {
-                    long e = ea(ra, simm);
-                    doLoad(1, false, rd, e);
-                    w(ra, e);
-                    break;
-                }
-                case 36:
-                    doStore(4, r(rd), ea(ra, simm));
-                    break;                       // stw
-                case 37: {
-                    long e = ea(ra, simm);
-                    doStore(4, r(rd), e);
-                    w(ra, e);
-                    break;
-                }
-                case 38:
-                    doStore(1, r(rd), ea(ra, simm));
-                    break;                       // stb
-                case 39: {
-                    long e = ea(ra, simm);
-                    doStore(1, r(rd), e);
-                    w(ra, e);
-                    break;
-                }
-                case 40:
-                    doLoad(2, false, rd, ea(ra, simm));
-                    break;                    // lhz
-                case 41: {
-                    long e = ea(ra, simm);
-                    doLoad(2, false, rd, e);
-                    w(ra, e);
-                    break;
-                }
-                case 42:
-                    doLoad(2, true, rd, ea(ra, simm));
-                    break;                     // lha
-                case 43: {
-                    long e = ea(ra, simm);
-                    doLoad(2, true, rd, e);
-                    w(ra, e);
-                    break;
-                }
-                case 44:
-                    doStore(2, r(rd), ea(ra, simm));
-                    break;                       // sth
-                case 45: {
-                    long e = ea(ra, simm);
-                    doStore(2, r(rd), e);
-                    w(ra, e);
-                    break;
-                }
+                case 32: doLoad(4, false, rd, ea(ra, simm)); break;                    // lwz
+                case 33: { long e = ea(ra, simm); doLoad(4, false, rd, e); w(ra, e); break; } // lwzu
+                case 34: doLoad(1, false, rd, ea(ra, simm)); break;                    // lbz
+                case 35: { long e = ea(ra, simm); doLoad(1, false, rd, e); w(ra, e); break; }
+                case 36: doStore(4, r(rd), ea(ra, simm)); break;                       // stw
+                case 37: { long e = ea(ra, simm); doStore(4, r(rd), e); w(ra, e); break; }
+                case 38: doStore(1, r(rd), ea(ra, simm)); break;                       // stb
+                case 39: { long e = ea(ra, simm); doStore(1, r(rd), e); w(ra, e); break; }
+                case 40: doLoad(2, false, rd, ea(ra, simm)); break;                    // lhz
+                case 41: { long e = ea(ra, simm); doLoad(2, false, rd, e); w(ra, e); break; }
+                case 42: doLoad(2, true, rd, ea(ra, simm)); break;                     // lha
+                case 43: { long e = ea(ra, simm); doLoad(2, true, rd, e); w(ra, e); break; }
+                case 44: doStore(2, r(rd), ea(ra, simm)); break;                       // sth
+                case 45: { long e = ea(ra, simm); doStore(2, r(rd), e); w(ra, e); break; }
                 case 46: { // lmw
                     long e = ea(ra, simm);
                     for (int i = rd; i < 32; i++, e += 4) {
@@ -847,58 +664,22 @@ public class CPU {
                     }
                     break;
                 }
-                case 48:
-                    fpr[rd] = (double) Float.intBitsToFloat((int) readMemoryWord(ea(ra, simm)));
-                    break; // lfs
-                case 49: {
-                    long e = ea(ra, simm);
-                    fpr[rd] = (double) Float.intBitsToFloat((int) readMemoryWord(e));
-                    w(ra, e);
-                    break;
-                }
-                case 50:
-                    fpr[rd] = Double.longBitsToDouble(readMemoryDouble(ea(ra, simm)));
-                    break;          // lfd
-                case 51: {
-                    long e = ea(ra, simm);
-                    fpr[rd] = Double.longBitsToDouble(readMemoryDouble(e));
-                    w(ra, e);
-                    break;
-                }
-                case 52:
-                    writeMemoryWord(ea(ra, simm), Float.floatToRawIntBits((float) fpr[rd]) & M32);
-                    break; // stfs
-                case 53: {
-                    long e = ea(ra, simm);
-                    writeMemoryWord(e, Float.floatToRawIntBits((float) fpr[rd]) & M32);
-                    w(ra, e);
-                    break;
-                }
-                case 54:
-                    writeMemoryDouble(ea(ra, simm), Double.doubleToRawLongBits(fpr[rd]));
-                    break;       // stfd
-                case 55: {
-                    long e = ea(ra, simm);
-                    writeMemoryDouble(e, Double.doubleToRawLongBits(fpr[rd]));
-                    w(ra, e);
-                    break;
-                }
+                case 48: fpr[rd] = (double) Float.intBitsToFloat((int) readMemoryWord(ea(ra, simm))); break; // lfs
+                case 49: { long e = ea(ra, simm); fpr[rd] = (double) Float.intBitsToFloat((int) readMemoryWord(e)); w(ra, e); break; }
+                case 50: fpr[rd] = Double.longBitsToDouble(readMemoryDouble(ea(ra, simm))); break;          // lfd
+                case 51: { long e = ea(ra, simm); fpr[rd] = Double.longBitsToDouble(readMemoryDouble(e)); w(ra, e); break; }
+                case 52: writeMemoryWord(ea(ra, simm), Float.floatToRawIntBits((float) fpr[rd]) & M32); break; // stfs
+                case 53: { long e = ea(ra, simm); writeMemoryWord(e, Float.floatToRawIntBits((float) fpr[rd]) & M32); w(ra, e); break; }
+                case 54: writeMemoryDouble(ea(ra, simm), Double.doubleToRawLongBits(fpr[rd])); break;       // stfd
+                case 55: { long e = ea(ra, simm); writeMemoryDouble(e, Double.doubleToRawLongBits(fpr[rd])); w(ra, e); break; }
                 case 58: { // ld / ldu / lwa (DS-form)
                     long d = (short) (insn & 0xFFFC);
                     long e = ea(ra, d);
                     switch (insn & 3) {
-                        case 0:
-                            doLoad(8, false, rd, e);
-                            break;
-                        case 1:
-                            doLoad(8, false, rd, e);
-                            w(ra, e);
-                            break;
-                        case 2:
-                            doLoad(4, true, rd, e);
-                            break;
-                        default:
-                            illegal(insn);
+                        case 0: doLoad(8, false, rd, e); break;
+                        case 1: doLoad(8, false, rd, e); w(ra, e); break;
+                        case 2: doLoad(4, true, rd, e); break;
+                        default: illegal(insn);
                     }
                     break;
                 }
@@ -906,15 +687,9 @@ public class CPU {
                     long d = (short) (insn & 0xFFFC);
                     long e = ea(ra, d);
                     switch (insn & 3) {
-                        case 0:
-                            doStore(8, r(rd), e);
-                            break;
-                        case 1:
-                            doStore(8, r(rd), e);
-                            w(ra, e);
-                            break;
-                        default:
-                            illegal(insn);
+                        case 0: doStore(8, r(rd), e); break;
+                        case 1: doStore(8, r(rd), e); w(ra, e); break;
+                        default: illegal(insn);
                     }
                     break;
                 }
@@ -929,8 +704,7 @@ public class CPU {
                         illegal(insn);
                     }
                     break;
-                case 5:
-                case 6: // VMX128 del Xenon: no implementado
+                case 5: case 6: // VMX128 del Xenon: no implementado
                     illegal(insn);
                     break;
                 default:
@@ -945,6 +719,7 @@ public class CPU {
         pc = nextPc & M32;
         instructionCount++;
     }
+
 
     // ------------------------------------------------------------------
     // AltiVec / VMX (opcode 4 y cargas/almacenes del opcode 31).
@@ -984,39 +759,27 @@ public class CPU {
         vreg[4 * r + k] = Float.floatToRawIntBits(v);
     }
 
-    /**
-     * Cargas/almacenes vectoriales del opcode 31. Devuelve false si no es una
-     * de ellas.
-     */
+    /** Cargas/almacenes vectoriales del opcode 31. Devuelve false si no es una de ellas. */
     private boolean execVectorMem(int key, int rd, int ra, int rb) {
         long e = eaX(ra, rb);
         switch (key) {
-            case 103:
-            case 359: { // lvx / lvxl
+            case 103: case 359: { // lvx / lvxl
                 long a = e & ~15L;
                 byte[] b = new byte[16];
-                for (int i = 0; i < 16; i++) {
-                    b[i] = readMemoryByte(a + i);
-                }
+                for (int i = 0; i < 16; i++) b[i] = readMemoryByte(a + i);
                 vsetBytes(rd, b);
                 return true;
             }
-            case 231:
-            case 487: { // stvx / stvxl
+            case 231: case 487: { // stvx / stvxl
                 long a = e & ~15L;
                 byte[] b = vbytes(rd);
-                for (int i = 0; i < 16; i++) {
-                    writeMemoryByte(a + i, b[i]);
-                }
+                for (int i = 0; i < 16; i++) writeMemoryByte(a + i, b[i]);
                 return true;
             }
-            case 6:
-            case 38: { // lvsl / lvsr
+            case 6: case 38: { // lvsl / lvsr
                 int sh = (int) (e & 15);
                 byte[] b = new byte[16];
-                for (int i = 0; i < 16; i++) {
-                    b[i] = (byte) (key == 6 ? sh + i : 16 - sh + i);
-                }
+                for (int i = 0; i < 16; i++) b[i] = (byte) (key == 6 ? sh + i : 16 - sh + i);
                 vsetBytes(rd, b);
                 return true;
             }
@@ -1030,60 +793,42 @@ public class CPU {
                 writeMemoryWord(e & ~3L, vreg[4 * rd + k] & M32);
                 return true;
             }
-            case 519:
-            case 775: { // lvlx / lvlxl (Xenon): bytes desde EA hasta el final del bloque, a la izquierda
+            case 519: case 775: { // lvlx / lvlxl (Xenon): bytes desde EA hasta el final del bloque, a la izquierda
                 int n = 16 - (int) (e & 15);
                 byte[] b = new byte[16];
-                for (int i = 0; i < n; i++) {
-                    b[i] = readMemoryByte(e + i);
-                }
+                for (int i = 0; i < n; i++) b[i] = readMemoryByte(e + i);
                 vsetBytes(rd, b);
                 return true;
             }
-            case 551:
-            case 807: { // lvrx / lvrxl: bytes anteriores a EA en el bloque, a la derecha
+            case 551: case 807: { // lvrx / lvrxl: bytes anteriores a EA en el bloque, a la derecha
                 int n = (int) (e & 15);
                 byte[] b = new byte[16];
-                for (int i = 0; i < n; i++) {
-                    b[16 - n + i] = readMemoryByte((e & ~15L) + i);
-                }
+                for (int i = 0; i < n; i++) b[16 - n + i] = readMemoryByte((e & ~15L) + i);
                 vsetBytes(rd, b);
                 return true;
             }
-            case 647:
-            case 903: { // stvlx / stvlxl
+            case 647: case 903: { // stvlx / stvlxl
                 int n = 16 - (int) (e & 15);
                 byte[] b = vbytes(rd);
-                for (int i = 0; i < n; i++) {
-                    writeMemoryByte(e + i, b[i]);
-                }
+                for (int i = 0; i < n; i++) writeMemoryByte(e + i, b[i]);
                 return true;
             }
-            case 679:
-            case 935: { // stvrx / stvrxl
+            case 679: case 935: { // stvrx / stvrxl
                 int n = (int) (e & 15);
                 byte[] b = vbytes(rd);
-                for (int i = 0; i < n; i++) {
-                    writeMemoryByte((e & ~15L) + i, b[16 - n + i]);
-                }
+                for (int i = 0; i < n; i++) writeMemoryByte((e & ~15L) + i, b[16 - n + i]);
                 return true;
             }
-            case 342:
-            case 374:
-            case 822:
-            case 566 + 1000: // dst/dstt/dss: sin efecto
+            case 342: case 374: case 822: case 566 + 1000: // dst/dstt/dss: sin efecto
                 return true;
             default:
                 return false;
         }
     }
 
-    /**
-     * Opcode 4 (AltiVec). Devuelve false si la instrucción no está
-     * implementada.
-     */
+    /** Opcode 4 (AltiVec). Devuelve false si la instrucción no está implementada. */
     private boolean execAltivec(int insn) {
-        final int vd = (insn >>> 21) & 31, va  = (insn >>> 16) & 31, vb = (insn >>> 11) & 31, vc = (insn >>> 6) & 31;
+        final int vd = (insn >>> 21) & 31, va = (insn >>> 16) & 31, vb = (insn >>> 11) & 31, vc = (insn >>> 6) & 31;
         final int va6 = insn & 0x3F;
         switch (va6) { // formato VA
             case 43: { // vperm
@@ -1097,7 +842,7 @@ public class CPU {
             }
             case 42: // vsel
                 for (int k = 0; k < 4; k++) {
-                    vreg[4 * vd + k] = (vreg[4 * va  + k] & ~vreg[4 * vc + k]) | (vreg[4 * vb + k] & vreg[4 * vc + k]);
+                    vreg[4 * vd + k] = (vreg[4 * va + k] & ~vreg[4 * vc + k]) | (vreg[4 * vb + k] & vreg[4 * vc + k]);
                 }
                 return true;
             case 44: { // vsldoi
@@ -1111,26 +856,17 @@ public class CPU {
                 return true;
             }
             case 46: // vmaddfp vD = vA*vC + vB
-                for (int k = 0; k < 4; k++) {
-                    vsetf(vd, k, Math.fma(vf(va, k), vf(vc, k), vf(vb, k)));
-                }
+                for (int k = 0; k < 4; k++) vsetf(vd, k, Math.fma(vf(va, k), vf(vc, k), vf(vb, k)));
                 return true;
             case 47: // vnmsubfp vD = -(vA*vC - vB)
-                for (int k = 0; k < 4; k++) {
-                    vsetf(vd, k, -Math.fma(vf(va, k), vf(vc, k), -vf(vb, k)));
-                }
+                for (int k = 0; k < 4; k++) vsetf(vd, k, -Math.fma(vf(va, k), vf(vc, k), -vf(vb, k)));
                 return true;
             default:
                 break;
         }
         int xo = insn & 0x7FF;
         switch (xo) {
-            case 0:
-            case 64:
-            case 128:
-            case 1024:
-            case 1088:
-            case 1152: { // vaddu?m / vsubu?m
+            case 0: case 64: case 128: case 1024: case 1088: case 1152: { // vaddu?m / vsubu?m
                 boolean sub = xo >= 1024;
                 int size = (xo & 0x3FF) == 0 ? 1 : ((xo & 0x3FF) == 64 ? 2 : 4);
                 byte[] a = vbytes(va), b = vbytes(vb), o = new byte[16];
@@ -1149,54 +885,32 @@ public class CPU {
                 vsetBytes(vd, o);
                 return true;
             }
-            case 1028:
-            case 1092:
-            case 1156:
-            case 1220:
-            case 1284: // vand vandc vor vxor vnor
+            case 1028: case 1092: case 1156: case 1220: case 1284: // vand vandc vor vxor vnor
                 for (int k = 0; k < 4; k++) {
-                    int x = vreg[4 * va  + k], y = vreg[4 * vb + k], r;
+                    int x = vreg[4 * va + k], y = vreg[4 * vb + k], r;
                     switch (xo) {
-                        case 1028:
-                            r = x & y;
-                            break;
-                        case 1092:
-                            r = x & ~y;
-                            break;
-                        case 1156:
-                            r = x | y;
-                            break;
-                        case 1220:
-                            r = x ^ y;
-                            break;
-                        default:
-                            r = ~(x | y);
+                        case 1028: r = x & y; break;
+                        case 1092: r = x & ~y; break;
+                        case 1156: r = x | y; break;
+                        case 1220: r = x ^ y; break;
+                        default: r = ~(x | y);
                     }
                     vreg[4 * vd + k] = r;
                 }
                 return true;
-            case 10:
-            case 74: // vaddfp / vsubfp
-                for (int k = 0; k < 4; k++) {
-                    vsetf(vd, k, xo == 10 ? vf(va, k) + vf(vb, k) : vf(va, k) - vf(vb, k));
-                }
+            case 10: case 74: // vaddfp / vsubfp
+                for (int k = 0; k < 4; k++) vsetf(vd, k, xo == 10 ? vf(va, k) + vf(vb, k) : vf(va, k) - vf(vb, k));
                 return true;
-            case 524:
-            case 588:
-            case 652: { // vspltb / vsplth / vspltw
+            case 524: case 588: case 652: { // vspltb / vsplth / vspltw
                 int size = xo == 524 ? 1 : (xo == 588 ? 2 : 4);
-                int idx = va  & (16 / size - 1);
+                int idx = va & (16 / size - 1);
                 byte[] b = vbytes(vb), o = new byte[16];
-                for (int i = 0; i < 16; i++) {
-                    o[i] = b[idx * size + (i % size)];
-                }
+                for (int i = 0; i < 16; i++) o[i] = b[idx * size + (i % size)];
                 vsetBytes(vd, o);
                 return true;
             }
-            case 780:
-            case 844:
-            case 908: { // vspltisb / vspltish / vspltisw
-                int simm = (va  << 27) >> 27;
+            case 780: case 844: case 908: { // vspltisb / vspltish / vspltisw
+                int simm = (va << 27) >> 27;
                 int size = xo == 780 ? 1 : (xo == 844 ? 2 : 4);
                 byte[] o = new byte[16];
                 for (int i = 0; i < 16; i++) {
@@ -1206,12 +920,7 @@ public class CPU {
                 vsetBytes(vd, o);
                 return true;
             }
-            case 12:
-            case 76:
-            case 140:
-            case 268:
-            case 332:
-            case 396: { // vmrgh*/vmrgl*
+            case 12: case 76: case 140: case 268: case 332: case 396: { // vmrgh*/vmrgl*
                 int size = (xo & 0xFF) == 12 ? 1 : ((xo & 0xFF) == 76 ? 2 : 4);
                 boolean low = xo >= 268;
                 byte[] a = vbytes(va), b = vbytes(vb), o = new byte[16];
@@ -1225,18 +934,14 @@ public class CPU {
                 vsetBytes(vd, o);
                 return true;
             }
-            case 388:
-            case 644:
-            case 900: // vslw / vsrw / vsraw
+            case 388: case 644: case 900: // vslw / vsrw / vsraw
                 for (int k = 0; k < 4; k++) {
-                    int sh = vreg[4 * vb + k] & 31, x = vreg[4 * va  + k];
+                    int sh = vreg[4 * vb + k] & 31, x = vreg[4 * va + k];
                     vreg[4 * vd + k] = xo == 388 ? x << sh : (xo == 644 ? x >>> sh : x >> sh);
                 }
                 return true;
             case 1540: // mfvscr
-                for (int k = 0; k < 4; k++) {
-                    vreg[4 * vd + k] = 0;
-                }
+                for (int k = 0; k < 4; k++) vreg[4 * vd + k] = 0;
                 return true;
             case 1604: // mtvscr
                 return true;
@@ -1251,12 +956,8 @@ public class CPU {
             boolean all = true, none = true;
             for (int i = 0; i < 16; i += size) {
                 boolean eq = true;
-                for (int j = 0; j < size; j++) {
-                    eq &= a[i + j] == b[i + j];
-                }
-                for (int j = 0; j < size; j++) {
-                    o[i + j] = (byte) (eq ? 0xFF : 0);
-                }
+                for (int j = 0; j < size; j++) eq &= a[i + j] == b[i + j];
+                for (int j = 0; j < size; j++) o[i + j] = (byte) (eq ? 0xFF : 0);
                 all &= eq;
                 none &= !eq;
             }
@@ -1269,24 +970,16 @@ public class CPU {
         return false;
     }
 
-    /**
-     * Opcode 30: rotaciones de 64 bits (MD y MDS).
-     */
+    /** Opcode 30: rotaciones de 64 bits (MD y MDS). */
     private void execRotate64(int insn, int rs, int ra, int rb, boolean rc) {
         int sh = rb | ((insn & 2) << 4);
         int mb = ((insn >>> 6) & 0x1F) | (insn & 0x20);
         long src = r(rs);
         long v;
         switch ((insn >>> 2) & 7) {
-            case 0:
-                v = Long.rotateLeft(src, sh) & mask64(mb, 63);
-                break;                    // rldicl
-            case 1:
-                v = Long.rotateLeft(src, sh) & mask64(0, mb);
-                break;                     // rldicr
-            case 2:
-                v = Long.rotateLeft(src, sh) & mask64(mb, 63 - sh);
-                break;               // rldic
+            case 0: v = Long.rotateLeft(src, sh) & mask64(mb, 63); break;                    // rldicl
+            case 1: v = Long.rotateLeft(src, sh) & mask64(0, mb); break;                     // rldicr
+            case 2: v = Long.rotateLeft(src, sh) & mask64(mb, 63 - sh); break;               // rldic
             case 3: {                                                                         // rldimi
                 long m = mask64(mb, 63 - sh);
                 v = (Long.rotateLeft(src, sh) & m) | (r(ra) & ~m);
@@ -1306,9 +999,7 @@ public class CPU {
                 return;
         }
         w(ra, v);
-        if (rc) {
-            cr0(v);
-        }
+        if (rc) cr0(v);
     }
 
     private void execOp31(int insn, int rd, int ra, int rb, boolean rc) {
@@ -1322,18 +1013,12 @@ public class CPU {
         long a = r(ra), b = r(rb), s = r(rd);
         switch (key) {
             case 0: // cmp
-                if ((insn & 0x00200000) != 0 && sf()) {
-                    cmpCR((insn >>> 23) & 7, Long.compare(a, b));
-                } else {
-                    cmpCR((insn >>> 23) & 7, Integer.compare((int) a, (int) b));
-                }
+                if ((insn & 0x00200000) != 0 && sf()) cmpCR((insn >>> 23) & 7, Long.compare(a, b));
+                else cmpCR((insn >>> 23) & 7, Integer.compare((int) a, (int) b));
                 break;
             case 32: // cmpl
-                if ((insn & 0x00200000) != 0 && sf()) {
-                    cmpCR((insn >>> 23) & 7, Long.compareUnsigned(a, b));
-                } else {
-                    cmpCR((insn >>> 23) & 7, Integer.compareUnsigned((int) a, (int) b));
-                }
+                if ((insn & 0x00200000) != 0 && sf()) cmpCR((insn >>> 23) & 7, Long.compareUnsigned(a, b));
+                else cmpCR((insn >>> 23) & 7, Integer.compareUnsigned((int) a, (int) b));
                 break;
             case 4: // tw
                 if (trapCond(rd, (int) a, (int) b)) {
@@ -1345,194 +1030,48 @@ public class CPU {
                     takeException(ExceptionHandler.EXCEPTION_PROGRAM, pc, 0x00020000L);
                 }
                 break;
-            case 8:
-                arith(rd, ~a, b, 1, true, oe, rc);
-                break;            // subfc
-            case 9: {
-                long v = Math.unsignedMultiplyHigh(a, b);
-                w(rd, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            } // mulhdu
-            case 10:
-                arith(rd, a, b, 0, true, oe, rc);
-                break;            // addc
-            case 11: {
-                long v = ((a & M32) * (b & M32)) >>> 32;
-                w(rd, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            } // mulhwu
+            case 8: arith(rd, ~a, b, 1, true, oe, rc); break;            // subfc
+            case 9: { long v = Math.unsignedMultiplyHigh(a, b); w(rd, v); if (rc) cr0(v); break; } // mulhdu
+            case 10: arith(rd, a, b, 0, true, oe, rc); break;            // addc
+            case 11: { long v = ((a & M32) * (b & M32)) >>> 32; w(rd, v); if (rc) cr0(v); break; } // mulhwu
             case 19: // mfcr / mfocrf
                 if ((insn & 0x00100000) != 0) {
                     int fxm = (insn >>> 12) & 0xFF;
                     long v = 0;
                     for (int n = 0; n < 8; n++) {
-                        if ((fxm & (0x80 >> n)) != 0) {
-                            v |= cr & (0xFL << ((7 - n) * 4));
-                        }
+                        if ((fxm & (0x80 >> n)) != 0) v |= cr & (0xFL << ((7 - n) * 4));
                     }
                     w(rd, v);
                 } else {
                     w(rd, cr);
                 }
                 break;
-            case 20: {
-                long e = eaX(ra, rb);
-                doLoad(4, false, rd, e);
-                reserveAddress = e & M32;
-                break;
-            } // lwarx
-            case 21:
-                doLoad(8, false, rd, eaX(ra, rb));
-                break;           // ldx
-            case 23:
-                doLoad(4, false, rd, eaX(ra, rb));
-                break;           // lwzx
-            case 24: {
-                long v = (b & 63) >= 32 ? 0 : ((s & M32) << (int) (b & 63)) & M32;
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            } // slw
-            case 26: {
-                long v = Integer.numberOfLeadingZeros((int) s);
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            } // cntlzw
-            case 27: {
-                long v = (b & 127) >= 64 ? 0 : s << (int) (b & 63);
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            } // sld
-            case 28: {
-                long v = s & b;
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            }       // and
-            case 40:
-                arith(rd, ~a, b, 1, false, oe, rc);
-                break;          // subf
-            case 53: {
-                long e = eaX(ra, rb);
-                doLoad(8, false, rd, e);
-                w(ra, e);
-                break;
-            } // ldux
-            case 54:
-            case 86:
-            case 246:
-            case 278:
-            case 982:
-            case 598:
-            case 854:
-            case 470:
-            case 306:
-            case 566:
-            case 498:
-            case 434:
-            case 402:
-            case 370:
-            case 595:
-            case 659:
-            case 210:
-            case 242:
-            case 307:
-            case 886:
-            case 274:
-            case 466:
-            case 851:
-            case 82:
-            case 978:
+            case 20: { long e = eaX(ra, rb); doLoad(4, false, rd, e); reserveAddress = e & M32; break; } // lwarx
+            case 21: doLoad(8, false, rd, eaX(ra, rb)); break;           // ldx
+            case 23: doLoad(4, false, rd, eaX(ra, rb)); break;           // lwzx
+            case 24: { long v = (b & 63) >= 32 ? 0 : ((s & M32) << (int) (b & 63)) & M32; w(ra, v); if (rc) cr0(v); break; } // slw
+            case 26: { long v = Integer.numberOfLeadingZeros((int) s); w(ra, v); if (rc) cr0(v); break; } // cntlzw
+            case 27: { long v = (b & 127) >= 64 ? 0 : s << (int) (b & 63); w(ra, v); if (rc) cr0(v); break; } // sld
+            case 28: { long v = s & b; w(ra, v); if (rc) cr0(v); break; }       // and
+            case 40: arith(rd, ~a, b, 1, false, oe, rc); break;          // subf
+            case 53: { long e = eaX(ra, rb); doLoad(8, false, rd, e); w(ra, e); break; } // ldux
+            case 54: case 86: case 246: case 278: case 982: case 598: case 854: case 470:
+            case 306: case 566: case 498: case 434: case 402: case 370: case 595: case 659:
+            case 210: case 242: case 307: case 886: case 274: case 466: case 851: case 82: case 978:
                 break; // dcbst/dcbf/dcbtst/dcbt/icbi/sync/eieio/dcbi/tlbie/tlbsync/slb*/mtsr...: sin efecto
-            case 55: {
-                long e = eaX(ra, rb);
-                doLoad(4, false, rd, e);
-                w(ra, e);
-                break;
-            } // lwzux
-            case 58: {
-                long v = Long.numberOfLeadingZeros(s);
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            } // cntlzd
-            case 60: {
-                long v = s & ~b;
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            }      // andc
-            case 73: {
-                long v = Math.multiplyHigh(a, b);
-                w(rd, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            } // mulhd
-            case 75: {
-                long v = ((long) (int) a * (int) b) >> 32;
-                w(rd, (int) v);
-                if (rc) {
-                    cr0((int) v);
-                }
-                break;
-            } // mulhw
-            case 83:
-                w(rd, msr);
-                break;                                   // mfmsr
-            case 84: {
-                long e = eaX(ra, rb);
-                doLoad(8, false, rd, e);
-                reserveAddress = e & M32;
-                break;
-            } // ldarx
-            case 87:
-                doLoad(1, false, rd, eaX(ra, rb));
-                break;           // lbzx
-            case 104:
-                arith(rd, ~a, 0, 1, false, oe, rc);
-                break;         // neg
-            case 119: {
-                long e = eaX(ra, rb);
-                doLoad(1, false, rd, e);
-                w(ra, e);
-                break;
-            } // lbzux
-            case 124: {
-                long v = ~(s | b);
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            }   // nor
-            case 136:
-                arith(rd, ~a, b, caIn(), true, oe, rc);
-                break;     // subfe
-            case 138:
-                arith(rd, a, b, caIn(), true, oe, rc);
-                break;      // adde
+            case 55: { long e = eaX(ra, rb); doLoad(4, false, rd, e); w(ra, e); break; } // lwzux
+            case 58: { long v = Long.numberOfLeadingZeros(s); w(ra, v); if (rc) cr0(v); break; } // cntlzd
+            case 60: { long v = s & ~b; w(ra, v); if (rc) cr0(v); break; }      // andc
+            case 73: { long v = Math.multiplyHigh(a, b); w(rd, v); if (rc) cr0(v); break; } // mulhd
+            case 75: { long v = ((long) (int) a * (int) b) >> 32; w(rd, (int) v); if (rc) cr0((int) v); break; } // mulhw
+            case 83: w(rd, msr); break;                                   // mfmsr
+            case 84: { long e = eaX(ra, rb); doLoad(8, false, rd, e); reserveAddress = e & M32; break; } // ldarx
+            case 87: doLoad(1, false, rd, eaX(ra, rb)); break;           // lbzx
+            case 104: arith(rd, ~a, 0, 1, false, oe, rc); break;         // neg
+            case 119: { long e = eaX(ra, rb); doLoad(1, false, rd, e); w(ra, e); break; } // lbzux
+            case 124: { long v = ~(s | b); w(ra, v); if (rc) cr0(v); break; }   // nor
+            case 136: arith(rd, ~a, b, caIn(), true, oe, rc); break;     // subfe
+            case 138: arith(rd, a, b, caIn(), true, oe, rc); break;      // adde
             case 144: { // mtcrf / mtocrf
                 int fxm = (insn >>> 12) & 0xFF;
                 for (int n = 0; n < 8; n++) {
@@ -1542,15 +1081,9 @@ public class CPU {
                 }
                 break;
             }
-            case 146:
-                msr = s;
-                break;                                     // mtmsr
-            case 178:
-                msr = s;
-                break;                                     // mtmsrd
-            case 149:
-                doStore(8, s, eaX(ra, rb));
-                break;                 // stdx
+            case 146: msr = s; break;                                     // mtmsr
+            case 178: msr = s; break;                                     // mtmsrd
+            case 149: doStore(8, s, eaX(ra, rb)); break;                 // stdx
             case 150: { // stwcx.
                 long e = eaX(ra, rb);
                 boolean ok = reserveAddress == (e & M32);
@@ -1561,27 +1094,11 @@ public class CPU {
                 crSetField(0, (ok ? 2 : 0) | ((xer & 0x80000000L) != 0 ? 1 : 0));
                 break;
             }
-            case 151:
-                doStore(4, s, eaX(ra, rb));
-                break;                 // stwx
-            case 181: {
-                long e = eaX(ra, rb);
-                doStore(8, s, e);
-                w(ra, e);
-                break;
-            } // stdux
-            case 183: {
-                long e = eaX(ra, rb);
-                doStore(4, s, e);
-                w(ra, e);
-                break;
-            } // stwux
-            case 200:
-                arith(rd, ~a, 0, caIn(), true, oe, rc);
-                break;     // subfze
-            case 202:
-                arith(rd, a, 0, caIn(), true, oe, rc);
-                break;      // addze
+            case 151: doStore(4, s, eaX(ra, rb)); break;                 // stwx
+            case 181: { long e = eaX(ra, rb); doStore(8, s, e); w(ra, e); break; } // stdux
+            case 183: { long e = eaX(ra, rb); doStore(4, s, e); w(ra, e); break; } // stwux
+            case 200: arith(rd, ~a, 0, caIn(), true, oe, rc); break;     // subfze
+            case 202: arith(rd, a, 0, caIn(), true, oe, rc); break;      // addze
             case 214: { // stdcx.
                 long e = eaX(ra, rb);
                 boolean ok = reserveAddress == (e & M32);
@@ -1592,260 +1109,103 @@ public class CPU {
                 crSetField(0, (ok ? 2 : 0) | ((xer & 0x80000000L) != 0 ? 1 : 0));
                 break;
             }
-            case 215:
-                doStore(1, s, eaX(ra, rb));
-                break;                 // stbx
-            case 232:
-                arith(rd, ~a, -1, caIn(), true, oe, rc);
-                break;    // subfme
+            case 215: doStore(1, s, eaX(ra, rb)); break;                 // stbx
+            case 232: arith(rd, ~a, -1, caIn(), true, oe, rc); break;    // subfme
             case 233: { // mulld
                 long v = a * b;
                 w(rd, v);
-                if (oe) {
-                    setOVf(Math.multiplyHigh(a, b) != (v >> 63));
-                }
-                if (rc) {
-                    cr0(v);
-                }
+                if (oe) setOVf(Math.multiplyHigh(a, b) != (v >> 63));
+                if (rc) cr0(v);
                 break;
             }
-            case 234:
-                arith(rd, a, -1, caIn(), true, oe, rc);
-                break;     // addme
+            case 234: arith(rd, a, -1, caIn(), true, oe, rc); break;     // addme
             case 235: { // mullw
                 long p = (long) (int) a * (int) b;
                 w(rd, p);
-                if (oe) {
-                    setOVf(p != (int) p);
-                }
-                if (rc) {
-                    cr0(p);
-                }
+                if (oe) setOVf(p != (int) p);
+                if (rc) cr0(p);
                 break;
             }
-            case 247: {
-                long e = eaX(ra, rb);
-                doStore(1, s, e);
-                w(ra, e);
-                break;
-            } // stbux
-            case 266:
-                arith(rd, a, b, 0, false, oe, rc);
-                break;          // add
-            case 279:
-                doLoad(2, false, rd, eaX(ra, rb));
-                break;          // lhzx
-            case 284: {
-                long v = ~(s ^ b);
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            }   // eqv
-            case 311: {
-                long e = eaX(ra, rb);
-                doLoad(2, false, rd, e);
-                w(ra, e);
-                break;
-            } // lhzux
-            case 316: {
-                long v = s ^ b;
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            }      // xor
+            case 247: { long e = eaX(ra, rb); doStore(1, s, e); w(ra, e); break; } // stbux
+            case 266: arith(rd, a, b, 0, false, oe, rc); break;          // add
+            case 279: doLoad(2, false, rd, eaX(ra, rb)); break;          // lhzx
+            case 284: { long v = ~(s ^ b); w(ra, v); if (rc) cr0(v); break; }   // eqv
+            case 311: { long e = eaX(ra, rb); doLoad(2, false, rd, e); w(ra, e); break; } // lhzux
+            case 316: { long v = s ^ b; w(ra, v); if (rc) cr0(v); break; }      // xor
             case 339: // mfspr
             case 371: // mftb
                 w(rd, getSPR(((insn >>> 16) & 31) | (((insn >>> 11) & 31) << 5)));
                 break;
-            case 341:
-                doLoad(4, true, rd, eaX(ra, rb));
-                break;           // lwax
-            case 343:
-                doLoad(2, true, rd, eaX(ra, rb));
-                break;           // lhax
-            case 373: {
-                long e = eaX(ra, rb);
-                doLoad(4, true, rd, e);
-                w(ra, e);
-                break;
-            } // lwaux
-            case 375: {
-                long e = eaX(ra, rb);
-                doLoad(2, true, rd, e);
-                w(ra, e);
-                break;
-            } // lhaux
-            case 407:
-                doStore(2, s, eaX(ra, rb));
-                break;                 // sthx
-            case 412: {
-                long v = s | ~b;
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            }     // orc
-            case 826:
-            case 827: { // sradi (xo de 10 bits: 826/827 según el bit sh5)
+            case 341: doLoad(4, true, rd, eaX(ra, rb)); break;           // lwax
+            case 343: doLoad(2, true, rd, eaX(ra, rb)); break;           // lhax
+            case 373: { long e = eaX(ra, rb); doLoad(4, true, rd, e); w(ra, e); break; } // lwaux
+            case 375: { long e = eaX(ra, rb); doLoad(2, true, rd, e); w(ra, e); break; } // lhaux
+            case 407: doStore(2, s, eaX(ra, rb)); break;                 // sthx
+            case 412: { long v = s | ~b; w(ra, v); if (rc) cr0(v); break; }     // orc
+            case 826: case 827: { // sradi (xo de 10 bits: 826/827 según el bit sh5)
                 int sh = ((insn >>> 11) & 31) | ((insn & 2) << 4);
                 long v = s >> sh;
                 setCAf(s < 0 && sh != 0 && (s & ((1L << sh) - 1)) != 0);
                 w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
+                if (rc) cr0(v);
                 break;
             }
-            case 439: {
-                long e = eaX(ra, rb);
-                doStore(2, s, e);
-                w(ra, e);
-                break;
-            } // sthux
-            case 444: {
-                long v = s | b;
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            }      // or
+            case 439: { long e = eaX(ra, rb); doStore(2, s, e); w(ra, e); break; } // sthux
+            case 444: { long v = s | b; w(ra, v); if (rc) cr0(v); break; }      // or
             case 457: { // divdu
                 long v = b == 0 ? 0 : Long.divideUnsigned(a, b);
                 w(rd, v);
-                if (oe) {
-                    setOVf(b == 0);
-                }
-                if (rc) {
-                    cr0(v);
-                }
+                if (oe) setOVf(b == 0);
+                if (rc) cr0(v);
                 break;
             }
             case 459: { // divwu
                 long v = (int) b == 0 ? 0 : Integer.divideUnsigned((int) a, (int) b) & M32;
                 w(rd, v);
-                if (oe) {
-                    setOVf((int) b == 0);
-                }
-                if (rc) {
-                    cr0(v);
-                }
+                if (oe) setOVf((int) b == 0);
+                if (rc) cr0(v);
                 break;
             }
             case 467: // mtspr
                 setSPR(((insn >>> 16) & 31) | (((insn >>> 11) & 31) << 5), s);
                 break;
-            case 476: {
-                long v = ~(s & b);
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            }   // nand
+            case 476: { long v = ~(s & b); w(ra, v); if (rc) cr0(v); break; }   // nand
             case 489: { // divd
                 boolean bad = b == 0 || (a == Long.MIN_VALUE && b == -1);
                 long v = bad ? 0 : a / b;
                 w(rd, v);
-                if (oe) {
-                    setOVf(bad);
-                }
-                if (rc) {
-                    cr0(v);
-                }
+                if (oe) setOVf(bad);
+                if (rc) cr0(v);
                 break;
             }
             case 491: { // divw
                 boolean bad = (int) b == 0 || ((int) a == Integer.MIN_VALUE && (int) b == -1);
                 long v = bad ? 0 : (int) a / (int) b;
                 w(rd, v);
-                if (oe) {
-                    setOVf(bad);
-                }
-                if (rc) {
-                    cr0(v);
-                }
+                if (oe) setOVf(bad);
+                if (rc) cr0(v);
                 break;
             }
-            case 534: {
-                long v = Integer.reverseBytes((int) readMemoryWord(eaX(ra, rb))) & M32;
-                w(rd, v);
-                break;
-            } // lwbrx
-            case 535:
-                fpr[rd] = (double) Float.intBitsToFloat((int) readMemoryWord(eaX(ra, rb)));
-                break;      // lfsx
-            case 536: {
-                long v = (b & 63) >= 32 ? 0 : (s & M32) >>> (int) (b & 63);
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            } // srw
-            case 539: {
-                long v = (b & 127) >= 64 ? 0 : s >>> (int) (b & 63);
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            } // srd
-            case 567: {
-                long e = eaX(ra, rb);
-                fpr[rd] = (double) Float.intBitsToFloat((int) readMemoryWord(e));
-                w(ra, e);
-                break;
-            } // lfsux
-            case 599:
-                fpr[rd] = Double.longBitsToDouble(readMemoryDouble(eaX(ra, rb)));
-                break;               // lfdx
-            case 631: {
-                long e = eaX(ra, rb);
-                fpr[rd] = Double.longBitsToDouble(readMemoryDouble(e));
-                w(ra, e);
-                break;
-            } // lfdux
-            case 662:
-                doStore(4, Integer.reverseBytes((int) s) & M32, eaX(ra, rb));
-                break;                  // stwbrx
-            case 663:
-                writeMemoryWord(eaX(ra, rb), Float.floatToRawIntBits((float) fpr[rd]) & M32);
-                break;  // stfsx
-            case 695: {
-                long e = eaX(ra, rb);
-                writeMemoryWord(e, Float.floatToRawIntBits((float) fpr[rd]) & M32);
-                w(ra, e);
-                break;
-            } // stfsux
-            case 727:
-                writeMemoryDouble(eaX(ra, rb), Double.doubleToRawLongBits(fpr[rd]));
-                break;            // stfdx
-            case 759: {
-                long e = eaX(ra, rb);
-                writeMemoryDouble(e, Double.doubleToRawLongBits(fpr[rd]));
-                w(ra, e);
-                break;
-            } // stfdux
-            case 790: {
-                long h = readMemoryHalf(eaX(ra, rb)) & 0xFFFF;
-                w(rd, (Integer.reverseBytes((int) h) >>> 16) & 0xFFFF);
-                break;
-            } // lhbrx
+            case 534: { long v = Integer.reverseBytes((int) readMemoryWord(eaX(ra, rb))) & M32; w(rd, v); break; } // lwbrx
+            case 535: fpr[rd] = (double) Float.intBitsToFloat((int) readMemoryWord(eaX(ra, rb))); break;      // lfsx
+            case 536: { long v = (b & 63) >= 32 ? 0 : (s & M32) >>> (int) (b & 63); w(ra, v); if (rc) cr0(v); break; } // srw
+            case 539: { long v = (b & 127) >= 64 ? 0 : s >>> (int) (b & 63); w(ra, v); if (rc) cr0(v); break; } // srd
+            case 567: { long e = eaX(ra, rb); fpr[rd] = (double) Float.intBitsToFloat((int) readMemoryWord(e)); w(ra, e); break; } // lfsux
+            case 599: fpr[rd] = Double.longBitsToDouble(readMemoryDouble(eaX(ra, rb))); break;               // lfdx
+            case 631: { long e = eaX(ra, rb); fpr[rd] = Double.longBitsToDouble(readMemoryDouble(e)); w(ra, e); break; } // lfdux
+            case 662: doStore(4, Integer.reverseBytes((int) s) & M32, eaX(ra, rb)); break;                  // stwbrx
+            case 663: writeMemoryWord(eaX(ra, rb), Float.floatToRawIntBits((float) fpr[rd]) & M32); break;  // stfsx
+            case 695: { long e = eaX(ra, rb); writeMemoryWord(e, Float.floatToRawIntBits((float) fpr[rd]) & M32); w(ra, e); break; } // stfsux
+            case 727: writeMemoryDouble(eaX(ra, rb), Double.doubleToRawLongBits(fpr[rd])); break;            // stfdx
+            case 759: { long e = eaX(ra, rb); writeMemoryDouble(e, Double.doubleToRawLongBits(fpr[rd])); w(ra, e); break; } // stfdux
+            case 790: { long h = readMemoryHalf(eaX(ra, rb)) & 0xFFFF; w(rd, (Integer.reverseBytes((int) h) >>> 16) & 0xFFFF); break; } // lhbrx
             case 792: { // sraw
                 int sh = (int) (b & 63);
                 int si = (int) s;
                 long v = sh >= 32 ? (si < 0 ? -1L : 0L) : (long) (si >> sh);
                 setCAf(si < 0 && (sh >= 32 || (si & ((1 << sh) - 1)) != 0));
                 w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
+                if (rc) cr0(v);
                 break;
             }
             case 794: { // srad
@@ -1861,9 +1221,7 @@ public class CPU {
                 }
                 setCAf(ca);
                 w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
+                if (rc) cr0(v);
                 break;
             }
             case 824: { // srawi
@@ -1872,43 +1230,15 @@ public class CPU {
                 long v = (long) (si >> sh);
                 setCAf(si < 0 && sh != 0 && (si & ((1 << sh) - 1)) != 0);
                 w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
+                if (rc) cr0(v);
                 break;
             }
-            case 918:
-                doStore(2, Integer.reverseBytes((int) s) >>> 16, eaX(ra, rb));
-                break;     // sthbrx
-            case 922: {
-                long v = (short) s;
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            }  // extsh
-            case 954: {
-                long v = (byte) s;
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            }   // extsb
-            case 986: {
-                long v = (int) s;
-                w(ra, v);
-                if (rc) {
-                    cr0(v);
-                }
-                break;
-            }    // extsw
-            case 983:
-                writeMemoryWord(eaX(ra, rb), Double.doubleToRawLongBits(fpr[rd]) & M32);
-                break; // stfiwx
-            case 597:
-            case 533: { // lswi / lswx: carga de cadena
+            case 918: doStore(2, Integer.reverseBytes((int) s) >>> 16, eaX(ra, rb)); break;     // sthbrx
+            case 922: { long v = (short) s; w(ra, v); if (rc) cr0(v); break; }  // extsh
+            case 954: { long v = (byte) s; w(ra, v); if (rc) cr0(v); break; }   // extsb
+            case 986: { long v = (int) s; w(ra, v); if (rc) cr0(v); break; }    // extsw
+            case 983: writeMemoryWord(eaX(ra, rb), Double.doubleToRawLongBits(fpr[rd]) & M32); break; // stfiwx
+            case 597: case 533: { // lswi / lswx: carga de cadena
                 long e = key == 597 ? ra0(ra) : eaX(ra, rb);
                 int n = key == 597 ? (rb == 0 ? 32 : rb) : (int) (xer & 0x7F);
                 int reg = rd;
@@ -1928,8 +1258,7 @@ public class CPU {
                 }
                 break;
             }
-            case 725:
-            case 661: { // stswi / stswx: almacena cadena
+            case 725: case 661: { // stswi / stswx: almacena cadena
                 long e = key == 725 ? ra0(ra) : eaX(ra, rb);
                 int n = key == 725 ? (rb == 0 ? 32 : rb) : (int) (xer & 0x7F);
                 int reg = rd;
@@ -1942,29 +1271,9 @@ public class CPU {
                 }
                 break;
             }
-            case 6:
-            case 7:
-            case 38:
-            case 71:
-            case 103:
-            case 199:
-            case 231:
-            case 342:
-            case 359:
-            case 374:
-            case 487:
-            case 519:
-            case 551:
-            case 647:
-            case 679:
-            case 775:
-            case 807:
-            case 822:
-            case 903:
-            case 935:
-                if (!execVectorMem(key, rd, ra, rb)) {
-                    illegal(insn);
-                }
+            case 6: case 7: case 38: case 71: case 103: case 199: case 231: case 342: case 359: case 374:
+            case 487: case 519: case 551: case 647: case 679: case 775: case 807: case 822: case 903: case 935:
+                if (!execVectorMem(key, rd, ra, rb)) illegal(insn);
                 break;
             case 1014: { // dcbz (32 bytes) / dcbz128 (rd=1, línea de 128 bytes del Xenon)
                 int line = rd == 1 ? 128 : 32;
@@ -2001,14 +1310,10 @@ public class CPU {
 
     private double roundByMode(double v) {
         switch ((int) (fpscr & FPSCR_RN_MASK)) {
-            case 1:
-                return v < 0 ? Math.ceil(v) : Math.floor(v);   // hacia cero
-            case 2:
-                return Math.ceil(v);
-            case 3:
-                return Math.floor(v);
-            default:
-                return Math.rint(v);
+            case 1: return v < 0 ? Math.ceil(v) : Math.floor(v);   // hacia cero
+            case 2: return Math.ceil(v);
+            case 3: return Math.floor(v);
+            default: return Math.rint(v);
         }
     }
 
@@ -2018,49 +1323,25 @@ public class CPU {
         final int xo5 = (insn >>> 1) & 0x1F;
         double a = fpr[fra], b = fpr[frb], c = fpr[frc], res;
         switch (xo5) {
-            case 18:
-                res = a / b;
-                break;                                  // fdiv(s)
-            case 20:
-                res = a - b;
-                break;                                  // fsub(s)
-            case 21:
-                res = a + b;
-                break;                                  // fadd(s)
-            case 22:
-                res = Math.sqrt(b);
-                break;                           // fsqrt(s)
+            case 18: res = a / b; break;                                  // fdiv(s)
+            case 20: res = a - b; break;                                  // fsub(s)
+            case 21: res = a + b; break;                                  // fadd(s)
+            case 22: res = Math.sqrt(b); break;                           // fsqrt(s)
             case 23:                                                       // fsel
                 if (!single) {
                     fpr[frd] = (a >= 0.0 || a == -0.0) && !Double.isNaN(a) ? c : b;
-                    if (rc) {
-                        crSetField(1, (int) ((fpscr >>> 28) & 0xF));
-                    }
+                    if (rc) crSetField(1, (int) ((fpscr >>> 28) & 0xF));
                     return;
                 }
                 illegal(insn);
                 return;
-            case 24:
-                res = 1.0 / b;
-                break;                                // fres
-            case 25:
-                res = a * c;
-                break;                                  // fmul(s)
-            case 26:
-                res = 1.0 / Math.sqrt(b);
-                break;                     // frsqrte
-            case 28:
-                res = Math.fma(a, c, -b);
-                break;                     // fmsub(s)
-            case 29:
-                res = Math.fma(a, c, b);
-                break;                      // fmadd(s)
-            case 30:
-                res = -Math.fma(a, c, -b);
-                break;                    // fnmsub(s)
-            case 31:
-                res = -Math.fma(a, c, b);
-                break;                     // fnmadd(s)
+            case 24: res = 1.0 / b; break;                                // fres
+            case 25: res = a * c; break;                                  // fmul(s)
+            case 26: res = 1.0 / Math.sqrt(b); break;                     // frsqrte
+            case 28: res = Math.fma(a, c, -b); break;                     // fmsub(s)
+            case 29: res = Math.fma(a, c, b); break;                      // fmadd(s)
+            case 30: res = -Math.fma(a, c, -b); break;                    // fnmsub(s)
+            case 31: res = -Math.fma(a, c, b); break;                     // fnmadd(s)
             default:
                 if (single) {
                     if (((insn >>> 1) & 0x3FF) == 846) { // fcfids
@@ -2074,57 +1355,35 @@ public class CPU {
                 return;
         }
         fpr[frd] = single ? sd(res) : res;
-        if (rc) {
-            crSetField(1, (int) ((fpscr >>> 28) & 0xF));
-        }
+        if (rc) crSetField(1, (int) ((fpscr >>> 28) & 0xF));
     }
 
     private void execFPX(int insn, int frd, int fra, int frb, boolean rc) {
         int xo = (insn >>> 1) & 0x3FF;
         double b = fpr[frb];
         switch (xo) {
-            case 0:
-                fpCompare((insn >>> 23) & 7, fpr[fra], b);
-                break;     // fcmpu
-            case 32:
-                fpCompare((insn >>> 23) & 7, fpr[fra], b);
-                break;    // fcmpo
-            case 12:
-                fpr[frd] = sd(b);
-                break;                              // frsp
-            case 14:
-            case 15: {                                            // fctiw / fctiwz
+            case 0: fpCompare((insn >>> 23) & 7, fpr[fra], b); break;     // fcmpu
+            case 32: fpCompare((insn >>> 23) & 7, fpr[fra], b); break;    // fcmpo
+            case 12: fpr[frd] = sd(b); break;                              // frsp
+            case 14: case 15: {                                            // fctiw / fctiwz
                 double v = xo == 15 ? (b < 0 ? Math.ceil(b) : Math.floor(b)) : roundByMode(b);
                 int iv = Double.isNaN(v) ? Integer.MIN_VALUE : (v >= 2147483647.0 ? Integer.MAX_VALUE
                         : (v <= -2147483648.0 ? Integer.MIN_VALUE : (int) v));
                 fpr[frd] = Double.longBitsToDouble(0xFFF8000000000000L | (iv & M32));
                 break;
             }
-            case 814:
-            case 815: {                                          // fctid / fctidz
+            case 814: case 815: {                                          // fctid / fctidz
                 double v = xo == 815 ? (b < 0 ? Math.ceil(b) : Math.floor(b)) : roundByMode(b);
                 long lv = Double.isNaN(v) ? Long.MIN_VALUE : (long) v;
                 fpr[frd] = Double.longBitsToDouble(lv);
                 break;
             }
-            case 846:
-                fpr[frd] = (double) Double.doubleToRawLongBits(b);
-                break; // fcfid
-            case 40:
-                fpr[frd] = -b;
-                break;                                 // fneg
-            case 72:
-                fpr[frd] = b;
-                break;                                  // fmr
-            case 136:
-                fpr[frd] = -Math.abs(b);
-                break;                      // fnabs
-            case 264:
-                fpr[frd] = Math.abs(b);
-                break;                       // fabs
-            case 583:
-                fpr[frd] = Double.longBitsToDouble(fpscr & M32);
-                break; // mffs
+            case 846: fpr[frd] = (double) Double.doubleToRawLongBits(b); break; // fcfid
+            case 40: fpr[frd] = -b; break;                                 // fneg
+            case 72: fpr[frd] = b; break;                                  // fmr
+            case 136: fpr[frd] = -Math.abs(b); break;                      // fnabs
+            case 264: fpr[frd] = Math.abs(b); break;                       // fabs
+            case 583: fpr[frd] = Double.longBitsToDouble(fpscr & M32); break; // mffs
             case 711: {                                                    // mtfsf
                 int fm = (insn >>> 17) & 0xFF;
                 long v = Double.doubleToRawLongBits(b) & M32;
@@ -2142,20 +1401,12 @@ public class CPU {
                 fpscr = (fpscr & ~(0xFL << ((7 - i) * 4))) | v;
                 break;
             }
-            case 38:
-                fpscr |= 1L << (31 - ((insn >>> 21) & 31));
-                break;    // mtfsb1
-            case 70:
-                fpscr &= ~(1L << (31 - ((insn >>> 21) & 31)));
-                break; // mtfsb0
-            case 64:
-                break;                                                // mcrfs
-            default:
-                illegal(insn);
+            case 38: fpscr |= 1L << (31 - ((insn >>> 21) & 31)); break;    // mtfsb1
+            case 70: fpscr &= ~(1L << (31 - ((insn >>> 21) & 31))); break; // mtfsb0
+            case 64: break;                                                // mcrfs
+            default: illegal(insn);
         }
-        if (rc) {
-            crSetField(1, (int) ((fpscr >>> 28) & 0xF));
-        }
+        if (rc) crSetField(1, (int) ((fpscr >>> 28) & 0xF));
     }
 
     // ELFv1 (PPC64): una dirección dentro de .opd es un descriptor {entrada, TOC, entorno}.
@@ -2176,10 +1427,7 @@ public class CPU {
         opdEnd = end;
     }
 
-    /**
-     * Ejecuta una instrucción completa (fetch + execute + tick +
-     * interrupciones).
-     */
+    /** Ejecuta una instrucción completa (fetch + execute + tick + interrupciones). */
     public void step() {
         if (opdEnd > opdStart && pc >= opdStart && pc < opdEnd) {
             long target = readMemoryDouble(pc);
@@ -2205,9 +1453,7 @@ public class CPU {
         checkInterrupts();
     }
 
-    /**
-     * Ejecuta hasta maxInstr instrucciones o hasta que la CPU se detenga.
-     */
+    /** Ejecuta hasta maxInstr instrucciones o hasta que la CPU se detenga. */
     public long run(long maxInstr) {
         long n = 0;
         while (!halted && n < maxInstr) {
@@ -2254,10 +1500,7 @@ public class CPU {
 
     private long tbIncrement = 1;
 
-    /**
-     * Ticks del time base por instrucción ejecutada (acelera los retardos
-     * basados en mftb).
-     */
+    /** Ticks del time base por instrucción ejecutada (acelera los retardos basados en mftb). */
     public void setTbIncrement(long n) {
         tbIncrement = Math.max(1, n);
     }

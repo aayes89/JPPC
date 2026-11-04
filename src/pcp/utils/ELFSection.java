@@ -1,5 +1,3 @@
-package pcp.utils;
-
 /*
  * The MIT License
  *
@@ -23,12 +21,13 @@ package pcp.utils;
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+package pcp.utils;
+
 /**
  *
  * @author Slam
  */
 public class ELFSection {
-
     // Atributos requeridos
     public long address;       // Dirección virtual (VMA)
     public long size;          // Tamaño de la sección
@@ -42,7 +41,7 @@ public class ELFSection {
     public int info;           // Información adicional específica
     public long addralign;     // Alineación de la sección
     public long entsize;       // Tamaño de entrada (para tablas)
-
+    
     // Constructor para inicializar valores por defecto
     public ELFSection() {
         address = 0;

@@ -1,4 +1,3 @@
-package pcp.gpu;
 /*
  * The MIT License
  *
@@ -22,6 +21,7 @@ package pcp.gpu;
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+package pcp.gpu;
 
 import java.awt.Dimension;
 import java.awt.Graphics;

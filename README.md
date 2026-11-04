@@ -70,7 +70,7 @@ java -Xmx1g -cp out pcp.PCP src/pcp/TESTS/xenon.elf \
 
 No es una Xbox 360 completa. VMX128 sigue sin implementarse. SFCX admite cargar imágenes NAND Xenon de solo lectura y transferir páginas lógicas/físicas; el EDC de 26 bits se calcula y valida como API auxiliar, pero no hay corrección de errores ni remapeo de bloques defectuosos integrado en las lecturas lógicas. Sin `--nand` se conserva el comportamiento de NAND vacía virtual. USB EHCI/OHCI es parcial y presenta dispositivos virtuales mínimos. SATA/ATAPI incluye un canal de sondeo y una unidad DVD virtual sin medio, no almacenamiento masivo ni disco duro. Ethernet, mandos, PIC, PCI y varios periféricos Xenon siguen pendientes. La MMU/BAT e interrupciones también tienen cobertura parcial.
 
-La captura actual confirma escritura visible en el framebuffer Xenos, pero no confirma por sí sola el banner final del Auto-Dumper. El ELF incluido es 360 Usb Auto-Dumper by blaKCat (Patch 1.035), no XeLL Reloaded. La integración SATA/ATAPI de M7.7 aún no ha demostrado que el flujo completo de este ELF alcance su espera final de USB; ver `M7.7-REPORT.md`.
+La captura actual confirma escritura visible en el framebuffer Xenos, pero no confirma por sí sola el banner final del Auto-Dumper. El arranque validado por el propietario presenta primero el splash azul de XeLL Reloaded y después transiciona al stage 2 parcheado: 360 Usb Auto-Dumper by blaKCat (Patch 1.035). El ELF permite auditar el stage 2 y su ASCII art CP437. JPPC no declara todavía renderizadas ambas etapas ni alcanzado el banner final; ver `M7.8-REPORT.md`.
 
 ## Diagnóstico
 
@@ -152,3 +152,8 @@ JPPC_TEST_NAND=/ruta/nand.raw ./tests.sh
 ```
 
 Esta prueba valida que SFCX puede transferir los datos de la página lógica en `0x4200`. No descifra el KeyVault ni valida sus claves.
+
+
+## Milestone M7.8 — separación de etapas y diagnóstico SATA/ATAPI
+
+Se documenta la secuencia de dos etapas (splash XeLL Reloaded y stage 2 Auto-Dumper), y se incorpora un desensamblado de las rutinas ATA/ATAPI `0x8A64–0x8F20`. La condición `DRDY` del sondeo inicial y la espera posterior `DRQ` se tratan como estados separados. Las pruebas SATA/ATAPI y SFCX pasan; la ejecución completa de XeLL todavía no está demostrada. Ver `M7.8-REPORT.md`.

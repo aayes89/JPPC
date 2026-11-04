@@ -1,5 +1,3 @@
-package pcp.system;
-
 /*
  * The MIT License
  *
@@ -23,6 +21,7 @@ package pcp.system;
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+package pcp.system;
 
 /**
  *
@@ -59,14 +58,14 @@ public class CacheController {
         if (!isCacheable(address)) {
             return bus.readWord(address);
         }
-        int index = getIndex((int) address);
-        int tag = getTag((int) address);
-        int offset = getWordOffset((int) address);
-        CacheLine line = cache[(int) index];
+        int index = getIndex((int)address);
+        int tag = getTag((int)address);
+        int offset = getWordOffset((int)address);
+        CacheLine line = cache[(int)index];
         if (line.valid && line.tag == tag) {
             return line.data[offset];
         }
-        loadLine((int) address, index, tag);
+        loadLine((int)address, index, tag);
         return cache[index].data[offset];
     }
 
@@ -75,12 +74,12 @@ public class CacheController {
             bus.writeWord(address, value);
             return;
         }
-        int index = getIndex((int) address);
-        int tag = getTag((int) address);
-        int offset = getWordOffset((int) address);
-        CacheLine line = cache[(int) index];
+        int index = getIndex((int)address);
+        int tag = getTag((int)address);
+        int offset = getWordOffset((int)address);
+        CacheLine line = cache[(int)index];
         if (line.valid && line.tag == tag) {
-            line.data[offset] = (int) value;
+            line.data[offset] = (int)value;
             line.dirty = !writeThrough;
             if (writeThrough) {
                 bus.writeWord(address, value);
@@ -92,7 +91,7 @@ public class CacheController {
 
     // Cargar línea completa desde memoria
     private void loadLine(int address, int index, int tag) {
-        CacheLine line = cache[(int) index];
+        CacheLine line = cache[(int)index];
         if (line.valid && line.dirty) {
             writeBackLine(index);
         }
@@ -106,7 +105,7 @@ public class CacheController {
     }
 
     private void writeBackLine(long index) {
-        CacheLine line = cache[(int) index];
+        CacheLine line = cache[(int)index];
         if (!line.valid || !line.dirty) {
             return;
         }
