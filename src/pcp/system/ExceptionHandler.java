@@ -66,27 +66,26 @@ public class ExceptionHandler {
     public static final int EXCEPTION_APU_UNAVAILABLE = 0xF20;
     public static final int EXCEPTION_INVALID = 0x0;
 
-    // Manejar una excepción
+    // Manejar una excepción. DSI/ISI se delegan al punto único de entrada de CPU.
     public void handleException(int exceptionType, long pc, long instruction) {
         switch (exceptionType) {
-            case EXCEPTION_PROGRAM:
-                System.err.println("[Exception Handler] Program exception at PC=0x" + Long.toHexString(pc)
-                        + ": Unimplemented instruction 0x" + Long.toHexString(instruction));                
-
-                // Guardar estado para depuración
-                cpu.setSrr1(cpu.getMsr());
-                cpu.setSrr0(pc);
-
-                // Configurar nuevo estado
-                cpu.setMsr(cpu.getMsr() & 0x0000FFFF); // Limpiar bits superiores
-                cpu.setPc(exceptionType);
-                cpu.setInterrupt(true);
+            case EXCEPTION_DATA_STORAGE:
+                cpu.raiseStorageException(false, instruction, false);
                 existException = true;
-                // Saltar al manejador de excepciones
-                cpu.handleInterrupt(0x700);
-                //cpu.setPc(0x700);
                 break;
-            // ... otros casos ...
+            case EXCEPTION_INSTRUCTION_STORAGE:
+                cpu.raiseStorageException(true, instruction, false);
+                existException = true;
+                break;
+            case EXCEPTION_PROGRAM:
+                System.err.println("[Exception Handler] Program exception at PC=0x"
+                        + Long.toHexString(pc) + ": instruction=0x" + Long.toHexString(instruction));
+                cpu.handleInterrupt(EXCEPTION_PROGRAM);
+                existException = true;
+                break;
+            default:
+                // No se inventa una semántica para vectores aún no implementados.
+                break;
         }
     }
 

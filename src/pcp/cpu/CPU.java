@@ -473,6 +473,21 @@ public class CPU {
         }
     }
 
+    /**
+     * Entrada unificada para fallos de traducción/almacenamiento.
+     * DSISR bit 25 identifica una operación de escritura; DAR conserva la EA.
+     * La excepción se entrega por la misma ruta que el resto de excepciones PPC.
+     */
+    public void raiseStorageException(boolean instruction, long effectiveAddress, boolean write) {
+        if (instruction) {
+            takeException(ExceptionHandler.EXCEPTION_INSTRUCTION_STORAGE, pc, 0x40000000L);
+            return;
+        }
+        dar = effectiveAddress;
+        dsisr = write ? 0x02000000L : 0L;
+        takeException(ExceptionHandler.EXCEPTION_DATA_STORAGE, pc, 0L);
+    }
+
     /** Entrada de excepción PowerPC. savedPc = valor para SRR0. */
     private void takeException(int vector, long savedPc, long extra) {
         srr0 = savedPc;

@@ -63,7 +63,7 @@ public class MMU {
         long segment = (virtualAddress >>> 28) & 0xF;
         int sr = segmentRegisters[(int) segment];
         if ((sr & 0x80000000) != 0) { // Direct-Store segment: unsupported by this MMU model.
-            raiseTranslationException(isInstruction, virtualAddress);
+            raiseTranslationException(isInstruction, virtualAddress, isWrite);
             return 0;
         }
         int vsid = sr & 0x00FFFFFF;
@@ -100,15 +100,12 @@ public class MMU {
             }
         }
         // Translation failure
-        raiseTranslationException(isInstruction, virtualAddress);
+        raiseTranslationException(isInstruction, virtualAddress, isWrite);
         return 0;
     }
 
-    private void raiseTranslationException(boolean isInstruction, long address) {
-        cpu.getExceptionHandler().handleException(
-            isInstruction ? ExceptionHandler.EXCEPTION_ISI : ExceptionHandler.EXCEPTION_DSI,
-            cpu.getPc(), address
-        );
+    private void raiseTranslationException(boolean isInstruction, long address, boolean isWrite) {
+        cpu.raiseStorageException(isInstruction, address, isWrite);
     }
 
     public void setBAT(int index, int value) {

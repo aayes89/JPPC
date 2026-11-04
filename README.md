@@ -168,3 +168,7 @@ M8.1 corrige la lectura de TBL/TBU mediante `mfspr`, conserva los patrones compl
 ## Milestone M8.2
 
 La MMU incorpora traducción BAT clásica para IBAT/DBAT, acceso SPR a BAT y SR, y pruebas deterministas. Ver `M8.2-REPORT.md` para alcance y limitaciones.
+
+## Milestone M8.3 — DSI/ISI exception entry
+
+M8.3 unifica la entrada de excepciones de almacenamiento e instrucción entre MMU y CPU. DSI conserva EA en DAR y distingue escrituras en DSISR; ISI utiliza su vector arquitectónico. La prueba `XenonExceptionSelfTest` valida el estado básico. La MMU sigue siendo parcial y este milestone no demuestra recuperación completa ni arranque de 1BL. Ver `M8.3-REPORT.md`.
