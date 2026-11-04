@@ -18,6 +18,12 @@ def freg(t):
         raise ValueError('registro FP inválido: ' + t)
     return int(m.group(1))
 
+def vreg(t):
+    m = re.fullmatch(r'v(\d+)', t.strip().lower())
+    if not m or not 0 <= int(m.group(1)) < 32:
+        raise ValueError('registro vectorial inválido: ' + t)
+    return int(m.group(1))
+
 def crf(t):
     m = re.fullmatch(r'cr(\d)', t.strip().lower())
     return int(m.group(1)) if m else None
@@ -45,6 +51,11 @@ LOG3.update({'sld': 27, 'srd': 539, 'srad': 794})
 FP_D = {'lfs': 48, 'lfsu': 49, 'lfd': 50, 'lfdu': 51, 'stfs': 52, 'stfsu': 53, 'stfd': 54, 'stfdu': 55}
 FP_A = {'fadd': 21, 'fsub': 20, 'fdiv': 18, 'fadds': 21, 'fsubs': 20, 'fdivs': 18}
 FP_X = {'fmr': 72, 'fneg': 40, 'fabs': 264, 'frsp': 12, 'fctiwz': 15, 'fctiw': 14, 'fcfid': 846, 'fctidz': 815}
+VX3 = {'vaddubm': 0, 'vadduhm': 64, 'vadduwm': 128, 'vsububm': 1024, 'vsubuhm': 1088, 'vsubuwm': 1152,
+       'vand': 1028, 'vandc': 1092, 'vor': 1156, 'vxor': 1220, 'vnor': 1284, 'vaddfp': 10, 'vsubfp': 74,
+       'vmrghw': 140, 'vmrglw': 396, 'vslw': 388, 'vsrw': 644, 'vsraw': 900, 'vcmpequw': 134, 'vcmpequb': 6}
+VMEM = {'lvx': 103, 'stvx': 231, 'lvsl': 6, 'lvsr': 38, 'lvlx': 519, 'lvrx': 551, 'stvlx': 647, 'stvrx': 679,
+        'lvewx': 71, 'stvewx': 199}
 BCOND = {'blt': (12, 0), 'bgt': (12, 1), 'beq': (12, 2), 'bso': (12, 3),
          'bge': (4, 0), 'ble': (4, 1), 'bne': (4, 2), 'bns': (4, 3)}
 SPR = {'xer': 1, 'lr': 8, 'ctr': 9, 'srr0': 26, 'srr1': 27, 'dec': 22, 'sprg0': 272}
@@ -270,6 +281,22 @@ def encode(mn, ops, L, pc):
         c = 0
         if crf(ops[0]) is not None: c = crf(ops[0]); ops = ops[1:]
         return [(63 << 26) | (c << 23) | (freg(ops[0]) << 16) | (freg(ops[1]) << 11)]
+    if mn in VX3:
+        return [(4 << 26) | (vreg(ops[0]) << 21) | (vreg(ops[1]) << 16) | (vreg(ops[2]) << 11) | VX3[mn]]
+    if mn in VMEM:
+        return [X(31, vreg(ops[0]), reg(ops[1]), reg(ops[2]), VMEM[mn])]
+    if mn in ('vspltisb', 'vspltish', 'vspltisw'):
+        xo = {'vspltisb': 780, 'vspltish': 844, 'vspltisw': 908}[mn]
+        return [(4 << 26) | (vreg(ops[0]) << 21) | ((P(1) & 31) << 16) | xo]
+    if mn in ('vspltb', 'vsplth', 'vspltw'):
+        xo = {'vspltb': 524, 'vsplth': 588, 'vspltw': 652}[mn]
+        return [(4 << 26) | (vreg(ops[0]) << 21) | ((P(2) & 31) << 16) | (vreg(ops[1]) << 11) | xo]
+    if mn in ('vperm', 'vsel'):
+        return [(4 << 26) | (vreg(ops[0]) << 21) | (vreg(ops[1]) << 16) | (vreg(ops[2]) << 11) | (vreg(ops[3]) << 6) | (43 if mn == 'vperm' else 42)]
+    if mn == 'vsldoi':
+        return [(4 << 26) | (vreg(ops[0]) << 21) | (vreg(ops[1]) << 16) | (vreg(ops[2]) << 11) | ((P(3) & 15) << 6) | 44]
+    if mn in ('vmaddfp', 'vnmsubfp'):   # vD,vA,vC,vB
+        return [(4 << 26) | (vreg(ops[0]) << 21) | (vreg(ops[1]) << 16) | (vreg(ops[3]) << 11) | (vreg(ops[2]) << 6) | (46 if mn == 'vmaddfp' else 47)]
     # saltos
     def target(t): return parse_imm(t, L)
     if mn in ('b', 'bl', 'ba', 'bla'):

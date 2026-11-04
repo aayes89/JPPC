@@ -1,4 +1,5 @@
-# triangle_fixed: el vertex buffer en una dirección válida.
+# triangle_fixed: igual que triangle.asm pero con el vertex buffer en una dirección válida.
+# (triangle.asm apunta el VB a 0x80020000, donde no hay datos; sus vértices están en su propio .data.)
 # Ensamblar:  python3 ppcasm.py triangle_fixed.s triangle_fixed.bin
 start:
         lis     r3, 0xC800              # base de registros de la GPU
