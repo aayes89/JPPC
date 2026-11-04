@@ -52,6 +52,7 @@ public class FrameBuffer implements Device {
     private final int[] gpuTiledBuffer;   // VRAM tal como la escribe la CPU
     private final int width;
     private final int height;
+    private final int pitchPixels;
     private volatile boolean tiled = false;
     private volatile int tileMode = 0;   // 0 lineal, 1 Morton 32x32, 2 Xenos (XGAddress2DTiledOffset)
     private volatile boolean dirty = true;
@@ -72,8 +73,9 @@ public class FrameBuffer implements Device {
         this.height = height;
         this.framebuffer = new int[width * height];
         // VRAM con relleno a múltiplos de 32 para que el modo tiled nunca se salga del array
-        int pw = (width + 31) & ~31, ph = (height + 31) & ~31;
-        this.gpuTiledBuffer = new int[pw * ph];
+        this.pitchPixels = (width + 31) & ~31;
+        int paddedHeight = (height + 31) & ~31;
+        this.gpuTiledBuffer = new int[Math.multiplyExact(pitchPixels, paddedHeight)];
     }
 
     /** Tamaño en bytes de la ventana MMIO del framebuffer. */
@@ -179,6 +181,11 @@ public class FrameBuffer implements Device {
         return height;
     }
 
+    /** Pitch físico de la superficie Xenos, alineado a 32 píxeles. */
+    public int getPitchPixels() { return pitchPixels; }
+
+    public int getPitchBytes() { return Math.multiplyExact(pitchPixels, 4); }
+
     public int[] getFramebuffer() {
         return framebuffer;
     }
@@ -222,7 +229,7 @@ public class FrameBuffer implements Device {
     private void detileXenos(int[] src, int[] dst, int w, int h) {
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                int idx = xenosTiledOffset(x, y, w) >> 2;
+                int idx = xenosTiledOffset(x, y, pitchPixels) >> 2;
                 dst[y * w + x] = idx < src.length ? Integer.reverseBytes(src[idx]) : 0;
             }
         }
@@ -268,7 +275,7 @@ public class FrameBuffer implements Device {
         if (x < 0 || x >= width || y < 0 || y >= height) {
             return;
         }
-        int index = tileMode == 2 ? xenosTiledOffset(x, y, width) >> 2 : (tiled ? tiledIndex(x, y) : y * width + x);
+        int index = tileMode == 2 ? xenosTiledOffset(x, y, pitchPixels) >> 2 : (tiled ? tiledIndex(x, y) : y * width + x);
         if (index >= 0 && index < gpuTiledBuffer.length) {
             gpuTiledBuffer[index] = tileMode == 2 ? Integer.reverseBytes(color) : color;
             dirty = true;

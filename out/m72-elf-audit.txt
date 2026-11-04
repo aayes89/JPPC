@@ -1,0 +1,9 @@
+ELF=/mnt/data/jppc_m72/JPPC-fixed/src/pcp/TESTS/xenon.elf
+SIZE=425492
+SHA256=851c9a7996ba84ee125279d144e4be9e274fe0995bf90711cfaabdd988da1866
+PRESENT XeLL legacy second stage
+ABSENT  XeLL Reloaded banner
+ABSENT  Xenos framebuffer mode marker
+PRESENT USB EHCI init marker
+PRESENT XeLL main menu marker
+NOTA=La ausencia de una cadena ASCII no descarta texto rasterizado, comprimido o construido en runtime.

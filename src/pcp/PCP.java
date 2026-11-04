@@ -12,7 +12,7 @@ import pcp.gpu.FrameBufferPanel;
  * Uso: java pcp.PCP [archivo] [opciones]
  *   --elf            el archivo es un ELF de PowerPC (por defecto: binario plano en 0x0)
  *   --load 0xADDR    dirección de carga del binario plano
- *   --size WxH       resolución del framebuffer (por defecto 800x600)
+ *   --size WxH       resolución del framebuffer (por defecto 1280x720)
  *   --headless       sin ventana: ejecuta, guarda PNG y termina
  *   --png salida.png archivo PNG en modo headless (por defecto fb.png)
  *   --console-png salida.png captura UART como terminal de diagnóstico
@@ -23,6 +23,7 @@ import pcp.gpu.FrameBufferPanel;
  *   --fb 0xADDR      dirección del framebuffer (por defecto 0x10000000)
  *   --threads N      hilos hardware (1..6; XeLL se detecta y usa 6)
  *   --bus            registra accesos a direcciones sin dispositivo
+ *   --bus-range A:B  limita --bus al rango hexadecimal inclusivo
  *   --input "texto"  escribe texto por el UART (\\n = Enter), p. ej. para el shell de LK
  *
  * @author Slam
@@ -30,18 +31,19 @@ import pcp.gpu.FrameBufferPanel;
 public class PCP {
 
     public static void main(String[] args) throws Exception {
-        String path = "./src/pcp/TESTS/fb_demo.bin";
-        boolean elf = false, headless = false, trace = false, vram = false, mandel = false, busTrace = false;
+        String path = "./src/pcp/TESTS/xenon.elf";
+        boolean elf = true, headless = false, trace = false, vram = false, mandel = false, busTrace = false;
         long fbBase = -1;
         String input = null;
         java.util.List<Long> watchList = new java.util.ArrayList<>();
         int threads = -1;
         long tb = -1;
         long load = 0, max = 50_000_000L;
-        int w = 800, h = 600;
+        int w = 1024, h = 768;
         String png = "fb.png";
         String consolePng = null;
         String nandPath = null;
+        long[] busRange = null;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -50,6 +52,13 @@ public class PCP {
                 case "--trace": trace = true; break;
                 case "--vram": vram = true; break;
                 case "--bus": busTrace = true; break;
+                case "--bus-range": {
+                    String[] r = args[++i].split(":", 2);
+                    if (r.length != 2) throw new IllegalArgumentException("--bus-range requiere INICIO:FIN");
+                    busRange = new long[]{Long.decode(r[0]), Long.decode(r[1])};
+                    busTrace = true;
+                    break;
+                }
                 case "--tb": tb = Long.parseLong(args[++i]); break;
                 case "--watch": watchList.add(Long.decode(args[++i])); break;
                 case "--threads": threads = Integer.parseInt(args[++i]); break;
@@ -77,6 +86,7 @@ public class PCP {
         }
         if (nandPath != null) ppcs.loadNand(java.nio.file.Paths.get(nandPath));
         ppcs.getBus().setTraceUnmapped(busTrace);
+        if (busRange != null) ppcs.getBus().setTraceRange(busRange[0], busRange[1]);
         ppcs.setSprTrace(busTrace);
         if (elf) {
             ppcs.loadELF(path);

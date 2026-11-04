@@ -19,6 +19,8 @@ case "$1" in
   test)    ./tests.sh ;;
   lk)      java -Xmx1g -cp out pcp.PCP $T/lk.elf --elf --size 1280x720 ;;
   xell)    java -Xmx1g -cp out pcp.PCP $T/xenon.elf --elf --size 1024x768 --tb 1000 ;;
-  png)     java -cp out pcp.PCP $T/fb_demo.bin --headless --png out/fb_demo.png ;;
+  png)     java -cp out pcp.PCP $T/fb_demo_1280x720.bin --size 1280x720 --headless --png out/fb_demo.png ;;
+  demo800) java -cp out pcp.PCP $T/fb_demo.bin --size 800x600 ;;
+  demo720) java -cp out pcp.PCP $T/fb_demo_1280x720.bin --size 1280x720 ;;
   *)       java -cp out pcp.PCP ${1:-$T/fb_demo.bin} "$@" ;;
 esac

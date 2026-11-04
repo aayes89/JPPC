@@ -1,0 +1,11 @@
+JPPC M6.2 — resultado de análisis read-only del dump Xenon
+RAW size: 17301504 bytes (0x1080000)
+Geometry: 32768 pages x 528 bytes; 1024 blocks
+EDC: valid=31483 invalid=0 erased=1285
+NAND header: CB offset=0x00008000, CF offset=0x00070000
+CB_A: version=0x0788, size=0x1800
+CB_A decrypted: CB_A.decrypted.bin
+CB_A SHA-256: 85cbb51a8d899d903d63610b5d4a2daae5220f60cff3f9c2cea173e8c9408fd8
+Status: decryption performed; RSA/hash verification not yet implemented.
+CPU key: supplied to inspector, not used in this milestone and never emitted.
+Original NAND: not included; source was opened read-only.

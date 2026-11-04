@@ -47,6 +47,7 @@ public class PPCSimulator {
     private final Console console = new Console();
     private final pcp.gpu.XenonUart uart = new pcp.gpu.XenonUart(console);
     private final pcp.gpu.XenonSfcx sfcx = new pcp.gpu.XenonSfcx();
+    private final pcp.gpu.XenonSata sata = new pcp.gpu.XenonSata();
     private final FrameBuffer frameBuffer;
     private final int fbW, fbH;
     private long fbBase = FB_BASE;
@@ -54,7 +55,7 @@ public class PPCSimulator {
     private boolean fbBaseUserSet = false;
     private boolean elfMode = false;
     private boolean xell = false;
-    public static final long FB_BASE_ELF = 0x1E000000L; // lejos de la imagen de LK (0x10000000)
+    public static final long FB_BASE_ELF = 0x1E000000L; // superficie Xenos usada por XeLL Xenon (1280x720)
 
     private volatile boolean running = false;
     private boolean debugMode = false;
@@ -75,6 +76,8 @@ public class PPCSimulator {
         bus.attachDevice(new pcp.gpu.XenonSmc(), pcp.gpu.XenonSmc.BASE, pcp.gpu.XenonSmc.BASE + 0x1F);
         bus.attachDevice(sfcx, pcp.gpu.XenonSfcx.BASE,
                 pcp.gpu.XenonSfcx.BASE + pcp.gpu.XenonSfcx.SIZE - 1);
+        bus.attachDevice(sata, pcp.gpu.XenonSata.BASE,
+                pcp.gpu.XenonSata.BASE + pcp.gpu.XenonSata.SIZE - 1);
     }
 
     /** Elige la dirección del framebuffer (debe llamarse antes de start/run). */
@@ -94,6 +97,7 @@ public class PPCSimulator {
             bus.attachDevice(new pcp.gpu.ToyGpu(bus, frameBuffer), pcp.gpu.ToyGpu.BASE,
                     pcp.gpu.ToyGpu.BASE + pcp.gpu.ToyGpu.SIZE - 1);
             // GPU Xenos (registros D1GRPH, etc.): la usan tanto LK (lwz) como XeLL (read32n)
+            // Los registros Xenos expuestos por este backend usan el contrato big-endian observado en XeLL y LK.
             pcp.gpu.XenosGpu gpu = new pcp.gpu.XenosGpu(fbBase, fbW, fbH, false);
             gpu.setOnSurfaceChange(addr -> {
                 if (addr != 0 && addr != fbBase) {

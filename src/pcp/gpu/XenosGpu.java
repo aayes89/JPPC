@@ -34,7 +34,7 @@ public class XenosGpu implements Device {
     public XenosGpu(long fbPhysBase, int width, int height, boolean littleEndian) {
         this.le = littleEndian;
         regs[0x6110 / 4] = d((int) fbPhysBase);
-        regs[0x6120 / 4] = d(width * 4);
+        regs[0x6120 / 4] = d((width + 31 & ~31) * 4);
         regs[0x6134 / 4] = d(width);
         regs[0x6138 / 4] = d(height);
         regs[0x0244 / 4] = d(0x000C0011);   // xenos_init_phase1 espera este valor
@@ -72,7 +72,7 @@ public class XenosGpu implements Device {
 
             // D1GRPH_PRIMARY_SURFACE_ADDRESS: notifica el cambio de superficie.
             if (offs == 0x6110 && onSurface != null) {
-                long address = v & 0xFFFFFFFFL;
+                long address = d(v) & 0xFFFFFFFFL;
                 if (address != 0) {
                     onSurface.accept(address);
                 }

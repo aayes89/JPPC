@@ -37,6 +37,8 @@ public class Bus {
     private final Memory memory;
     private boolean traceUnmapped = false;
     private int unmappedLogged = 0;
+    private long traceStart = 0;
+    private long traceEnd = ADDR_MASK;
     private final java.util.Map<String, Integer> seen = new java.util.HashMap<>();
 
     /** Registra accesos a direcciones sin dispositivo fuera de la RAM (para descubrir el hardware que espera el firmware). */
@@ -44,8 +46,21 @@ public class Bus {
         traceUnmapped = t;
     }
 
+    /** Limita la traza MMIO a un rango inclusivo de direcciones físicas. */
+    public void setTraceRange(long start, long end) {
+        start &= ADDR_MASK;
+        end &= ADDR_MASK;
+        if (Long.compareUnsigned(start, end) > 0) {
+            throw new IllegalArgumentException("Rango de bus invertido");
+        }
+        traceStart = start;
+        traceEnd = end;
+    }
+
     private void logUnmapped(String kind, long address, long value) {
-        if (!traceUnmapped || unmappedLogged >= 200) {
+        if (!traceUnmapped || unmappedLogged >= 200
+                || Long.compareUnsigned(address, traceStart) < 0
+                || Long.compareUnsigned(address, traceEnd) > 0) {
             return;
         }
         if (seen.size() > 4096) {

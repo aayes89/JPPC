@@ -1,0 +1,32 @@
+[SFCX] NAND /mnt/data/nand.bin: 17301504 bytes, RAW_WITH_SPARE, 32768 p?ginas, 1024 bloques (solo lectura)
+Skipping non-loadable segment: type=0x6474e550
+Skipping non-loadable segment: type=0x6474e551
+Loading segment: paddr=0x0, size=424528, offset=0x100
+Setting PC to 0x8300
+[sim] 6 hilos hardware (PIR 0..5)
+
+******************************************************************************
+**************************    NEW LOG  Patch v(1.035)    *********************
+******************************************************************************
+
+ * Model          :Xenon
+Xenos GPU ID=0000
+GPU Clock at 500 MHz
+MEM Clock at 50 MHz
+EDRAM Clock at 1800 MHz
+FSB Clock at 100 MHz
+AVPACK detected: 5b
+EDID invalid.
+ . ana disable
+ . ana enable
+ . f1
+ . f2
+
+XeLL - Xenon linux loader second stage -git- 2012-10-26 (LibXenon.org)
+ * nand init
+ * Initialising USB EHCI...
+Initialising EHCI bus 0 at 0xea003000
+Initialising EHCI bus 1 at 0xea005000
+ * Initialising USB OHCI...
+USB bus 0 device 1: vendor 0000 product 0000 class 09: USB Hub
+USB bus 1 device 1: vendor 0000 product 0000 class 09: USB Hub

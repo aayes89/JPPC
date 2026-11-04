@@ -20,6 +20,9 @@ public final class NandImage {
 
     public enum Format { RAW_WITH_SPARE, DATA_ONLY }
 
+    /** Resultado de comprobar el EDC de una página RAW. */
+    public enum EccStatus { VALID, INVALID, ERASED, UNAVAILABLE }
+
     private final byte[] bytes;
     private final Format format;
     private final Path source;
@@ -70,5 +73,90 @@ public final class NandImage {
             throw new IllegalArgumentException("Buffer destino debe tener al menos 512 bytes");
         int stride = format == Format.RAW_WITH_SPARE ? RAW_PAGE_SIZE : DATA_PAGE_SIZE;
         System.arraycopy(bytes, pageIndex * stride, destination, 0, DATA_PAGE_SIZE);
+    }
+
+    /**
+     * Calcula el EDC Xbox 360 de 26 bits. El algoritmo consume los 512 bytes
+     * de datos, los 12 primeros bytes de metadata OOB y los seis bits bajos
+     * de OOB[12]. Los 26 bits calculados se almacenan en OOB[12..15].
+     *
+     * El buffer debe contener exactamente una página física de 528 bytes.
+     */
+    public static int calculateEcc(byte[] rawPage) {
+        requireRawPage(rawPage);
+        int value = 0;
+        int word = 0;
+        for (int bit = 0; bit < 0x1066; bit++) {
+            if ((bit & 31) == 0) {
+                int offset;
+                if (bit < 0x1000) {
+                    offset = (bit >>> 5) << 2;
+                } else {
+                    offset = DATA_PAGE_SIZE + (((bit - 0x1000) >>> 5) << 2);
+                }
+                // El SFCX de referencia ejecuta bswap32() en Xenon (PPC BE),
+                // equivalente a reconstruir aquí el DWORD en orden little-endian.
+                word = ~readLittleEndian32(rawPage, offset);
+            }
+            value ^= word & 1;
+            word >>>= 1;
+            if ((value & 1) != 0) value ^= 0x06954559;
+            value >>>= 1;
+        }
+        value = ~value;
+        return (((value << 6) & 0xC0) << 24)
+                | (((value >>> 2) & 0xFF) << 16)
+                | (((value >>> 10) & 0xFF) << 8)
+                | ((value >>> 18) & 0xFF);
+    }
+
+    /** Compara el EDC calculado con los 26 bits almacenados en el OOB. */
+    public static boolean isEccValid(byte[] rawPage) {
+        requireRawPage(rawPage);
+        int calculated = calculateEcc(rawPage);
+        int stored = ((rawPage[DATA_PAGE_SIZE + 0x0C] & 0xC0) << 24)
+                | ((rawPage[DATA_PAGE_SIZE + 0x0D] & 0xFF) << 16)
+                | ((rawPage[DATA_PAGE_SIZE + 0x0E] & 0xFF) << 8)
+                | (rawPage[DATA_PAGE_SIZE + 0x0F] & 0xFF);
+        return calculated == stored;
+    }
+
+    /** Estado EDC; una imagen sin OOB no permite validar ECC. */
+    public EccStatus getEccStatus(int pageIndex) {
+        if (format != Format.RAW_WITH_SPARE) return EccStatus.UNAVAILABLE;
+        byte[] raw = new byte[RAW_PAGE_SIZE];
+        readPhysicalPage(pageIndex, raw);
+        if (isErased(raw)) return EccStatus.ERASED;
+        return isEccValid(raw) ? EccStatus.VALID : EccStatus.INVALID;
+    }
+
+    /** Small-block metadata: BlockID = ((OOB[1] & 0x0F) << 8) | OOB[0]. */
+    public static int getSmallBlockId(byte[] rawPage) {
+        requireRawPage(rawPage);
+        int oob = DATA_PAGE_SIZE;
+        return ((rawPage[oob + 1] & 0x0F) << 8) | (rawPage[oob] & 0xFF);
+    }
+
+    /** Devuelve el byte OOB[5] sin asignarle semántica de bad-block todavía. */
+    public static int getSmallBlockMarkerField(byte[] rawPage) {
+        requireRawPage(rawPage);
+        return rawPage[DATA_PAGE_SIZE + 5] & 0xFF;
+    }
+
+    private static int readLittleEndian32(byte[] data, int offset) {
+        return (data[offset] & 0xFF)
+                | ((data[offset + 1] & 0xFF) << 8)
+                | ((data[offset + 2] & 0xFF) << 16)
+                | ((data[offset + 3] & 0xFF) << 24);
+    }
+
+    private static boolean isErased(byte[] page) {
+        for (byte b : page) if ((b & 0xFF) != 0xFF) return false;
+        return true;
+    }
+
+    private static void requireRawPage(byte[] rawPage) {
+        if (rawPage == null || rawPage.length != RAW_PAGE_SIZE)
+            throw new IllegalArgumentException("Se requiere una página RAW exacta de 528 bytes");
     }
 }

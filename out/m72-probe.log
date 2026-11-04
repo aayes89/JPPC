@@ -1,0 +1,234 @@
+Skipping non-loadable segment: type=0x6474e550
+Skipping non-loadable segment: type=0x6474e551
+Loading segment: paddr=0x0, size=424528, offset=0x100
+Setting PC to 0x8300
+[sim] 6 hilos hardware (PIR 0..5)
+[spr] mtspr SPR 1017 (0x3f9) valor=0x1803800000000 pc=0x8388
+[spr] mfspr SPR 1017 (0x3f9) valor=0x1803800000000 pc=0x83a0
+[spr] mtspr SPR 1017 (0x3f9) valor=0x1a03800000000 pc=0x83bc
+[spr] mtspr SPR 319 (0x13f) valor=0x0 pc=0x8444
+[spr] mfspr SPR 318 (0x13e) valor=0x0 pc=0x8448
+[spr] mtspr SPR 318 (0x13e) valor=0x402 pc=0x8450
+[spr] mtspr SPR 313 (0x139) valor=0x8000000000000000 pc=0x845c
+[bus] escritura32 no mapeado 0x1ddffff0 valor=0x9de00000
+[bus] escritura32 no mapeado 0x1de00004 valor=0x800084f0
+[bus] escritura32 no mapeado 0x1ddfffd0 valor=0x9ddffff0
+[bus] escritura32 no mapeado 0x1ddffff4 valor=0x80001ebc
+[bus] escritura32 no mapeado 0x1ddfffec valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffb0 valor=0x9ddfffd0
+[bus] escritura32 no mapeado 0x1ddfffc8 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffd4 valor=0x800465d0
+[bus] escritura32 no mapeado 0x1ddfff70 valor=0x9ddfffb0
+[bus] escritura32 no mapeado 0x1ddfffa8 valor=0x80065ce0
+[bus] escritura32 no mapeado 0x1ddfffb4 valor=0x80048a9c
+[bus] escritura32 no mapeado 0x1ddfffa0 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffac valor=0x800674cc
+[bus] escritura32 no mapeado 0x1ddfff88 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfff8c valor=0x0
+[bus] escritura32 no mapeado 0x1ddfff90 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfff94 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfff98 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfff9c valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffa4 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfff60 valor=0x9ddfff70
+[bus] escritura32 no mapeado 0x1ddfff74 valor=0x80048b70
+[bus] escritura32 no mapeado 0x1ddfff50 valor=0x9ddfff60
+[bus] escritura32 no mapeado 0x1ddfff64 valor=0x8000a8d8
+[bus] escritura32 no mapeado 0x1ddfff50 valor=0x9ddfff70
+[bus] escritura32 no mapeado 0x1ddfff68 valor=0x80065ce4
+[bus] escritura32 no mapeado 0x1ddfff74 valor=0x80048f30
+[bus] escritura32 no mapeado 0x1ddfff6c valor=0x20
+[bus] escritura32 no mapeado 0x1ddfff64 valor=0x8005d7dc
+[bus] escritura32 no mapeado 0x1ddfff40 valor=0x9ddfff50
+[bus] escritura32 no mapeado 0x1ddfff54 valor=0x8004b94c
+[bus] escritura32 no mapeado 0x1ddfff68 valor=0x80065ce4
+[bus] escritura32 no mapeado 0x1ddfff6c valor=0x20
+[bus] escritura32 no mapeado 0x1ddfff40 valor=0x9ddfff50
+[bus] escritura32 no mapeado 0x1ddfff54 valor=0x8004b94c
+[bus] escritura32 no mapeado 0x1ddfff60 valor=0x9ddfff70
+[bus] escritura32 no mapeado 0x1ddfff5c valor=0x21
+[bus] escritura32 no mapeado 0x1ddfffc0 valor=0x9ddfffd0
+[bus] escritura32 no mapeado 0x1ddfffd4 valor=0x800465dc
+[bus] escritura32 no mapeado 0x1ddfffa0 valor=0x9ddfffc0
+[bus] escritura32 no mapeado 0x1ddfffb8 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffc4 valor=0x80046598
+[bus] escritura32 no mapeado 0x1ddfffe0 valor=0x9de00000
+[bus] escritura32 no mapeado 0x1de00004 valor=0x800084f4
+[bus] escritura32 no mapeado 0x1ddffff8 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffffc valor=0x0
+[bus] escritura32 no mapeado 0x1ddffff0 valor=0x9de00000
+[bus] escritura32 no mapeado 0x1ddfffb0 valor=0x9ddffff0
+[bus] escritura32 no mapeado 0x1ddffff4 valor=0x80001ef4
+[bus] escritura32 no mapeado 0x1ddfffcc valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffd0 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffd8 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffdc valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffe0 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffe4 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffe8 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffec valor=0x0
+[bus] escritura32 no mapeado 0x1ddffb20 valor=0x9ddfffb0
+[bus] escritura32 no mapeado 0x1ddfffb4 valor=0x80002768
+[bus] escritura32 no mapeado 0x1ddfffa4 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffa8 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfffac valor=0x0
+[bus] escritura32 no mapeado 0x1ddfff3c valor=0x0
+[bus] escritura32 no mapeado 0x1ddfff44 valor=0x0
+[bus] escritura32 no mapeado 0x1ddfff48 valor=0x1000
+[bus] escritura32 no mapeado 0x1ddfff4c valor=0x2
+[bus] escritura no mapeado 0x1ddffb28 valor=0x1
+[bus] escritura no mapeado 0x1ddffb29 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffb2c valor=0x9ddfffb8
+[bus] escritura32 no mapeado 0x1ddffb30 valor=0x9ddfff38
+[bus] escritura32 no mapeado 0x1ddffb00 valor=0x9ddffb20
+[bus] escritura32 no mapeado 0x1ddffb18 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffb24 valor=0x80002650
+[bus] escritura32 no mapeado 0x1ddffa80 valor=0x9ddffb00
+[bus] escritura32 no mapeado 0x1ddffb04 valor=0x80053440
+[bus] escritura32 no mapeado 0x1ddffa88 valor=0x9ddffb38
+[bus] escritura32 no mapeado 0x1ddffa90 valor=0x7fffffff
+[bus] escritura32 no mapeado 0x1ddffa9c valor=0x7fffffff
+[bus] escritura32 no mapeado 0x1ddffa98 valor=0x9ddffb38
+[bus] escritura no mapeado 0x1ddffa96 valor=0xff
+[bus] escritura no mapeado 0x1ddffa97 valor=0xff
+[bus] escritura no mapeado 0x1ddffa94 valor=0x2
+[bus] escritura no mapeado 0x1ddffa95 valor=0x8
+[bus] escritura32 no mapeado 0x1ddff950 valor=0x9ddffa80
+[bus] escritura32 no mapeado 0x1ddffa54 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa68 valor=0x80065f68
+[bus] escritura32 no mapeado 0x1ddffa84 valor=0x800533e4
+[bus] escritura32 no mapeado 0x1ddffa40 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa50 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa5c valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa70 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa74 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa78 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa7c valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa28 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa2c valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa30 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa34 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa38 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa3c valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa44 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa48 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa4c valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa58 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa60 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa64 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa6c valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa24 valor=0x80000004
+[bus] escritura32 no mapeado 0x1ddff930 valor=0x9ddff950
+[bus] escritura32 no mapeado 0x1ddff948 valor=0x80065ed8
+[bus] escritura32 no mapeado 0x1ddff954 valor=0x8004dae4
+[bus] escritura32 no mapeado 0x1ddffa14 valor=0x80066294
+[bus] escritura32 no mapeado 0x1ddffa08 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa10 valor=0x0
+[bus] escritura32 no mapeado 0x1ddffa0c valor=0x0
+[bus] escritura32 no mapeado 0x1ddff97c valor=0x9ddff9b0
+[bus] escritura32 no mapeado 0x1ddff984 valor=0x0
+[bus] escritura32 no mapeado 0x1ddff980 valor=0x0
+[bus] escritura32 no mapeado 0x1ddff9b0 valor=0x8005e56e
+[bus] escritura32 no mapeado 0x1ddff9b4 valor=0xee
+[bus] escritura32 no mapeado 0x1ddff980 valor=0x1
+[bus] escritura32 no mapeado 0x1ddff984 valor=0xee
+[bus] escritura32 no mapeado 0x1ddff910 valor=0x9ddff950
+[bus] escritura32 no mapeado 0x1ddff954 valor=0x8004e4d4
+[bus] escritura32 no mapeado 0x1ddff924 valor=0x80066eec
+[bus] escritura32 no mapeado 0x1ddff934 valor=0x9ddffa88
+[bus] escritura32 no mapeado 0x1ddff93c valor=0x8005e56e
+[bus] escritura32 no mapeado 0x1ddff944 valor=0x0
+[bus] escritura32 no mapeado 0x1ddff920 valor=0x9ddffb28
+[bus] escritura32 no mapeado 0x1ddff928 valor=0xee
+[bus] escritura32 no mapeado 0x1ddff92c valor=0x8005e65c
+[bus] escritura32 no mapeado 0x1ddff930 valor=0x8005d378
+[bus] escritura32 no mapeado 0x1ddff938 valor=0x9ddff9b0
+[bus] escritura32 no mapeado 0x1ddff940 valor=0x0
+[bus] escritura32 no mapeado 0x1ddff948 valor=0x80065ed8
+[bus] escritura32 no mapeado 0x1ddff94c valor=0x9ddff9b8
+[bus] escritura32 no mapeado 0x1ddff8f0 valor=0x9ddff910
+[bus] escritura32 no mapeado 0x1ddff914 valor=0x8004d810
+[bus] escritura32 no mapeado 0x1ddff908 valor=0x80065ed8
+[bus] escritura no mapeado 0x1ddffb38 valor=0xa
+[bus] escritura no mapeado 0x1ddffb39 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb3a valor=0x2a
+[bus] escritura no mapeado 0x1ddffb3b valor=0x2a
+[bus] escritura no mapeado 0x1ddffb3c valor=0x2a
+[bus] escritura no mapeado 0x1ddffb3d valor=0x2a
+[bus] escritura no mapeado 0x1ddffb3e valor=0x2a
+[bus] escritura no mapeado 0x1ddffb3f valor=0x2a
+[bus] escritura no mapeado 0x1ddffb40 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb41 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb42 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb43 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb44 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb45 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb46 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb47 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb48 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb49 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb4a valor=0x2a
+[bus] escritura no mapeado 0x1ddffb4b valor=0x2a
+[bus] escritura no mapeado 0x1ddffb4c valor=0x2a
+[bus] escritura no mapeado 0x1ddffb4d valor=0x2a
+[bus] escritura no mapeado 0x1ddffb4e valor=0x2a
+[bus] escritura no mapeado 0x1ddffb4f valor=0x2a
+[bus] escritura no mapeado 0x1ddffb50 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb51 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb52 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb53 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb54 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb55 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb56 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb57 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb58 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb59 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb5a valor=0x2a
+[bus] escritura no mapeado 0x1ddffb5b valor=0x2a
+[bus] escritura no mapeado 0x1ddffb5c valor=0x2a
+[bus] escritura no mapeado 0x1ddffb5d valor=0x2a
+[bus] escritura no mapeado 0x1ddffb5e valor=0x2a
+[bus] escritura no mapeado 0x1ddffb5f valor=0x2a
+[bus] escritura no mapeado 0x1ddffb60 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb61 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb62 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb63 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb64 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb65 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb66 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb67 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb68 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb69 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb6a valor=0x2a
+[bus] escritura no mapeado 0x1ddffb6b valor=0x2a
+[bus] escritura no mapeado 0x1ddffb6c valor=0x2a
+[bus] escritura no mapeado 0x1ddffb6d valor=0x2a
+[bus] escritura no mapeado 0x1ddffb6e valor=0x2a
+[bus] escritura no mapeado 0x1ddffb6f valor=0x2a
+[bus] escritura no mapeado 0x1ddffb70 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb71 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb72 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb73 valor=0x2a
+[bus] escritura no mapeado 0x1ddffb74 valor=0x2a
+
+******************************************************************************
+**************************    NEW LOG  Patch v(1.035)    *********************
+******************************************************************************
+
+ * Model          :Xenon
+Xenos GPU ID=0000
+GPU Clock at 500 MHz
+MEM Clock at 50 MHz
+EDRAM Clock at 1800 MHz
+FSB Clock at 100 MHz
+AVPACK detected: 5b
+EDID invalid.
+ . ana disable
+ . ana enable
+ . f1
+ . f2
+
+XeLL - Xenon linux loader second stage -git- 2012-10-26 (LibXenon.org)
+
+[headless] VRAM palabras no nulas: 0 (base FB 0x1e000000)
+[headless] 833536 instrucciones, PC=0x80049c3c, halted=false, PNG=out/m72-probe.png

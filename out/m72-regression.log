@@ -1,0 +1,19 @@
+OK    NAND Xenon RAW (528 bytes, OOB, geometry)
+OK    XeLL ELF audit identifies legacy second stage
+OK    XeLL ELF audit reports missing Xenos marker
+OK    autotest CPU 32 bits (23 tests)
+OK    autotest CPU 64 bits + FP (22 tests)
+OK    autotest AltiVec/VMX (9 tests)
+OK    fb_demo (render por MMIO)
+OK    triangle_fixed (GPU de juguete)
+OK    lk.elf arranca (PPC64 + UART)
+OK    lk.elf: el shell responde a 'help'
+OK    lk.elf: sin instrucciones ilegales
+OK    lk.elf: gfx rgb_bars (tiling Xenos)
+OK    xenon.elf: XeLL + AVPACK VGA
+OK    xenon.elf: Xenos video mode setup
+OK    xenon.elf: NAND virtual + USB EHCI/OHCI
+OK    xenon.elf: dos hubs virtuales enumerados
+OK    xenon.elf: framebuffer Xenos escrito
+OK    xenon.elf: captura framebuffer
+OK    xenon.elf: captura UART

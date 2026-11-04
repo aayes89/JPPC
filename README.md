@@ -12,11 +12,11 @@ Emulador experimental Java para binarios PowerPC planos y ELF32/ELF64. Incluye C
 
 ```sh
 ./run.sh compile       # compilar en ./out
-./run.sh test          # compilar y ejecutar 17 comprobaciones
+./run.sh test          # compilar y ejecutar la batería de regresión
 ant clean jar          # generar dist/PCP.jar
 ```
 
-La regresión cubre CPU PPC32, PPC64/FP, AltiVec, framebuffer MMIO, GPU de juguete, LK (shell y RGB bars) y XeLL (SMC/AVPACK, inicialización Xenos, SFCX/NAND, USB y framebuffer).
+La regresión cubre CPU PPC32, PPC64/FP, AltiVec, framebuffer MMIO, GPU de juguete, LK (shell y RGB bars) y XeLL (SMC/AVPACK, inicialización Xenos, SFCX/NAND, USB, SATA/ATAPI y framebuffer).
 
 ## Ejecutar
 
@@ -27,7 +27,7 @@ La regresión cubre CPU PPC32, PPC64/FP, AltiVec, framebuffer MMIO, GPU de jugue
 ```
 
 - `./run.sh lk`: ventana de Little Kernel, superficie 1280×720.
-- `./run.sh xell`: ventana XeLL, VGA 1024×768 y timebase acelerado para los retardos de firmware.
+- `./run.sh xell`: ventana XeLL, framebuffer del panel dimensionado por `--size` y timebase acelerado para los retardos de firmware. Para el modo VGA 1024×768 del ELF incluido, usa `--size 1024x768`.
 
 Invocación general:
 
@@ -49,10 +49,10 @@ java -Xmx1g -cp out pcp.PCP src/pcp/TESTS/xenon.elf \
 
 ## Capturas
 
-- `capturas/xell_xenos_1024x768.png`: salida real del framebuffer Xenos durante la inicialización XeLL.
+- `capturas/xell_xenos_text_console_1024x768.png`: captura real del framebuffer Xenos; muestra el contenido alcanzado por la ejecución documentada, no el banner final del Auto-Dumper.
 - `capturas/xell_uart_1024x768.png`: salida UART del mismo arranque.
 
-![XeLL en framebuffer Xenos](capturas/xell_xenos_1024x768.png)
+![Consola de inicialización en framebuffer Xenos](capturas/xell_xenos_text_console_1024x768.png)
 
 - El resto de capturas corresponde a las pruebas de framebuffer y GPU incluidas.
 
@@ -68,9 +68,9 @@ java -Xmx1g -cp out pcp.PCP src/pcp/TESTS/xenon.elf \
 
 ## Límites conocidos
 
-No es una Xbox 360 completa. VMX128 sigue sin implementarse. SFCX admite cargar imágenes NAND Xenon de solo lectura; la lectura física de páginas 512+16 está implementada, pero ECC y remapeo de bloques defectuosos siguen pendientes. Sin `--nand` se conserva el comportamiento de NAND vacía virtual. USB EHCI/OHCI es parcial y solo presenta dispositivos virtuales mínimos. Ethernet, SATA, mandos, PIC, PCI y varios periféricos Xenon siguen pendientes. La MMU/BAT e interrupciones también tienen cobertura parcial.
+No es una Xbox 360 completa. VMX128 sigue sin implementarse. SFCX admite cargar imágenes NAND Xenon de solo lectura y transferir páginas lógicas/físicas; el EDC de 26 bits se calcula y valida como API auxiliar, pero no hay corrección de errores ni remapeo de bloques defectuosos integrado en las lecturas lógicas. Sin `--nand` se conserva el comportamiento de NAND vacía virtual. USB EHCI/OHCI es parcial y presenta dispositivos virtuales mínimos. SATA/ATAPI incluye un canal de sondeo y una unidad DVD virtual sin medio, no almacenamiento masivo ni disco duro. Ethernet, mandos, PIC, PCI y varios periféricos Xenon siguen pendientes. La MMU/BAT e interrupciones también tienen cobertura parcial.
 
-La captura XeLL confirma que el modo VGA Xenos y la escritura tiled del framebuffer funcionan. La ejecución llega a la inicialización y enumeración USB; no se garantiza el menú completo ni la carga de un ELF desde medios/red.
+La captura actual confirma escritura visible en el framebuffer Xenos, pero no confirma por sí sola el banner final del Auto-Dumper. El ELF incluido es 360 Usb Auto-Dumper by blaKCat (Patch 1.035), no XeLL Reloaded. La integración SATA/ATAPI de M7.7 aún no ha demostrado que el flujo completo de este ELF alcance su espera final de USB; ver `M7.7-REPORT.md`.
 
 ## Diagnóstico
 
@@ -99,5 +99,56 @@ java -Xmx1g -cp dist/PCP.jar pcp.PCP src/pcp/TESTS/xenon.elf \\
 ```
 
 `--nand` admite RAW de 17,301,504 bytes (512+16 por página) y datos sin OOB de
-16,777,216 bytes. La imagen se abre en modo solo lectura. La lectura de páginas RAW está implementada y probada con una imagen sintética; la lectura lógica todavía no aplica ECC ni remapeo de bloques defectuosos. Las escrituras y borrados son deliberadamente no persistentes.
+16,777,216 bytes. La imagen se abre en modo solo lectura. El cálculo/validación del EDC de 26 bits y la extracción del BlockID small-block están implementados y probados con páginas sintéticas. Aún no se corrigen bits, no se remapean bloques defectuosos y las lecturas lógicas no aplican una traducción de bloques. Las escrituras y borrados son deliberadamente no persistentes.
 No usar este milestone como herramienta de flasheo ni como validación de arranque real.
+
+## NAND Xenon: análisis read-only y CB_A
+
+El proyecto incluye `pcp.gpu.XenonNandBootInspector` para inspeccionar dumps RAW Xenon (512+16) y descifrar el cuerpo de CB_A. Ejecuta desde una terminal interactiva para introducir las claves sin incluirlas en la línea de comandos:
+
+```sh
+ant jar
+java -cp dist/PCP.jar pcp.gpu.XenonNandBootInspector /ruta/nand.raw out/nand-analysis
+```
+
+El programa no modifica el dump. Solicita la clave 1BL y la CPU key sin eco; el flujo actual usa la 1BL para CB_A. La CPU key queda reservada para implementar CB_B/KeyVault. El resultado no sustituye la verificación de firma RSA ni el tratamiento de bad blocks. Consulta `M6.2-REPORT.md` para el alcance y los resultados medidos.
+
+
+## Milestone M7.2 — identidad XeLL y diagnóstico MMIO USB
+
+Audita la identidad de un ELF antes de comparar capturas: `java -cp dist/PCP.jar pcp.utils.XenonElfAudit src/pcp/TESTS/xenon.elf`. El informe incluye tamaño, SHA-256 y presencia de marcadores de build. La ausencia de una cadena literal no descarta arte ASCII/bitmap ni contenido comprimido.
+
+Para trazar exclusivamente el bloque MMIO que detiene el arranque: `--bus-range 0xEA001300:0xEA0013FF` (activa automáticamente `--bus`). La traza no fuerza bits ni sintetiza una respuesta USB. Ver `M7.2-REPORT.md`.
+
+## Resolución 1280x720 (M7.4)
+
+La resolución predeterminada de PCP es ahora 1280x720. Para probar el framebuffer lineal con stride correcto:
+
+```bash
+./run.sh demo720
+```
+
+El demo original 800x600 se conserva:
+
+```bash
+./run.sh demo800
+```
+
+`./run.sh xell` usa ventana/framebuffer 1280x720. En ELF Xenon, la superficie se reubica cuando XeLL escribe D1GRPH_PRIMARY_SURFACE_ADDRESS; el renderer conserva la VRAM tiled y el PNG se genera desde esa VRAM, no desde UART.
+
+## Milestone M7.6 — USB MMIO identification
+
+See `M7.6-REPORT.md`. This iteration deliberately does not map `0xEA001300` as a standard OHCI block: a controlled OHCI experiment regressed XeLL to `PC=0x8000BA08`, so the speculative device was removed. The reproducible bus trace and the remaining wait condition are documented in the report. Target display remains 1280x720; framebuffer and UART captures are separate.
+
+
+## Milestone M7.7 — SATA/ATAPI y SFCX con imagen real
+
+Se añade `XenonSata` en `0xEA001300`, con canal ATA listo para el sondeo, HDD ATA ausente y unidad ATAPI virtual `JPPC Virtual DVD-ROM` sin medio. Se soportan `IDENTIFY PACKET DEVICE`, `INQUIRY` y `REQUEST SENSE`; `TEST UNIT READY` y lecturas devuelven `NOT READY / MEDIUM NOT PRESENT`. El detalle y las limitaciones de integración con XeLL están en `M7.7-REPORT.md`.
+
+Prueba opcional con una NAND RAW propia, sin copiar el dump al proyecto ni al ZIP:
+
+```sh
+JPPC_TEST_NAND=/ruta/nand.raw ./tests.sh
+```
+
+Esta prueba valida que SFCX puede transferir los datos de la página lógica en `0x4200`. No descifra el KeyVault ni valida sus claves.

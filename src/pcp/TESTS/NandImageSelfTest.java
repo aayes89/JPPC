@@ -29,6 +29,26 @@ public final class NandImageSelfTest {
             byte[] logical = new byte[NandImage.DATA_PAGE_SIZE];
             nand.readLogicalPage(2, logical);
             if (logical[0] != 0x12 || logical[3] != 0x78) throw new AssertionError("lectura lógica");
+
+            // EDC Xbox 360: genera el valor de referencia y valida que un bit
+            // alterado en datos u OOB metadata invalida la página.
+            byte[] eccPage = new byte[NandImage.RAW_PAGE_SIZE];
+            for (int i = 0; i < NandImage.DATA_PAGE_SIZE; i++)
+                eccPage[i] = (byte) (i * 37 + 11);
+            eccPage[512] = 0x34;
+            eccPage[513] = 0x02; // BlockID 0x234
+            eccPage[517] = (byte) 0xFF;
+            int ecc = NandImage.calculateEcc(eccPage);
+            eccPage[524] = (byte) ((ecc >>> 24) & 0xC0);
+            eccPage[525] = (byte) (ecc >>> 16);
+            eccPage[526] = (byte) (ecc >>> 8);
+            eccPage[527] = (byte) ecc;
+            if (!NandImage.isEccValid(eccPage)) throw new AssertionError("ECC calculado no valida");
+            if (NandImage.getSmallBlockId(eccPage) != 0x234) throw new AssertionError("BlockID OOB");
+            if (NandImage.getSmallBlockMarkerField(eccPage) != 0xFF) throw new AssertionError("marker OOB");
+            eccPage[17] ^= 0x01;
+            if (NandImage.isEccValid(eccPage)) throw new AssertionError("ECC no detectó bit alterado");
+
             XenonSfcx sfcx = new XenonSfcx();
             sfcx.loadNand(temp);
             // SFCX: clear status, flash address 0x400 (página 2), physical read,
@@ -45,7 +65,7 @@ public final class NandImageSelfTest {
             sfcx.writeWord(0x08, Integer.reverseBytes(4));
             sfcx.writeWord(0x08, Integer.reverseBytes(5));
             if (!Arrays.equals(before, Files.readAllBytes(temp))) throw new AssertionError("NAND modificada");
-            System.out.println("NAND RAW Xenon: ALL OK (528-byte page, OOB, 32768 pages, 1024 blocks, SFCX read-only)");
+            System.out.println("NAND RAW Xenon: ALL OK (geometry, OOB, 26-bit EDC, metadata, SFCX read-only)");
         } finally {
             Files.deleteIfExists(temp);
         }
