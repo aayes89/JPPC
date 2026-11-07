@@ -1,6 +1,6 @@
 package pcp.TESTS;
 
-import pcp.gpu.XenonSata;
+import pcp.xenon.XenonSata;
 
 /** Pruebas ATA/ATAPI: canal listo, identidad ATAPI, INQUIRY y medio ausente. */
 public final class XenonSataSelfTest {

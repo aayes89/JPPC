@@ -2,7 +2,7 @@ package pcp.TESTS;
 
 import java.nio.file.Paths;
 import pcp.gpu.NandImage;
-import pcp.gpu.XenonSfcx;
+import pcp.xenon.XenonSfcx;
 
 /** Verifica la ruta MMIO SFCX contra una imagen RAW suministrada localmente. */
 public final class NandSfcxImageSelfTest {

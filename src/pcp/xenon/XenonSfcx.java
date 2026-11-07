@@ -1,8 +1,10 @@
-package pcp.gpu;
+package pcp.xenon;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import pcp.gpu.Device;
+import pcp.gpu.NandImage;
 
 /**
  * Controlador SFCX small-block para Xenon en 0xEA00C000.

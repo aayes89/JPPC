@@ -26,8 +26,10 @@ run() {
     java -Xmx1g -cp "$CP" pcp.PCP "$@" 2>&1
 }
 
+check "CLI unsigned 64-bit Xenon address parser" \
+    "$(java -cp "$CP" pcp.AddressParserSelfTest 2>&1)" "Unsigned 64-bit address parser: ALL OK"
 check "Bus RAM alias + MMIO big-endian" \
-    "$(java -cp "$CP" pcp.TESTS.BusMappingSelfTest 2>&1)" "Bus mapping/alias/MMIO endian: ALL OK"
+    "$(java -cp "$CP" pcp.TESTS.BusMappingSelfTest 2>&1)" "Bus mapping/alias/MMIO endian/64-bit: ALL OK"
 check "Xenon SPR TBL/TBU + Time Base + DEC underflow" \
     "$(java -cp "$CP" pcp.TESTS.XenonTimebaseSelfTest 2>&1)" "Xenon Time Base/Decrementer: ALL OK"
 check "Xenon MMU IBAT/DBAT effective-address translation" \
@@ -57,7 +59,7 @@ check_file "$CP/xell-logo-cp437.txt" "XeLL CP437 logo artifact"
 check "XeLL logo artifact contains attribution" "$(cat "$CP/xell-logo-cp437.txt")" "Free60.org XeLL"
 
 check "autotest CPU 32 bits (23 tests)" \
-    "$(run "$T/cpu_selftest.bin" --size 800x600 --headless --max 1000000 --png "$CP/a.png")" "ALL OK"
+    "$(run "$T/cpu_selftest.bin" --ppc32 --size 800x600 --headless --max 1000000 --png "$CP/a.png")" "ALL OK"
 check "autotest CPU 64 bits + FP (22 tests)" \
     "$(run "$T/cpu_selftest64.bin" --headless --max 1000000 --png "$CP/b.png")" "ALL OK (64)"
 check "autotest AltiVec/VMX (9 tests)" \

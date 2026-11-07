@@ -1,7 +1,9 @@
-package pcp.gpu;
+package pcp.xenon;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import pcp.gpu.Console;
+import pcp.gpu.Device;
 
 /**
  * UART del Xenon (Xbox 360) en 0xEA001000, tal como la usa libxenon/LK:

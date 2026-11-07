@@ -181,3 +181,8 @@ Ver `M8.4-REPORT.md`. La resolución predeterminada y `run.sh xell` son 1024x768
 ## M8.5 — TLB lookup e invalidación
 
 Se amplía el VPN a 20 bits y se conectan `tlbie`/`slbia` con invalidaciones reales del TLB software. Véase `M8.5-REPORT.md` para validación y límites. Esta etapa **no declara preparación para 1BL**: SDR1/hash page tables y permisos de PTE siguen pendientes.
+
+
+### Modo de ejecución PPC32 para binarios planos
+
+Usa `--ppc32` para ejecutar binarios planos de 32 bits con `MSR[SF]=0`. Los binarios PPC64 deben ejecutarse sin esa opción. El parser de CLI admite direcciones hexadecimales Xenon de 64 bits, por ejemplo `--watch 0x8000020000000000` y `--bus-range 0x8000020000000000:0x8000020000ffffff`.

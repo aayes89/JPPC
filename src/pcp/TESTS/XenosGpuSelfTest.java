@@ -1,6 +1,6 @@
 package pcp.TESTS;
 
-import pcp.gpu.XenosGpu;
+import pcp.xenon.XenosGpu;
 
 /** Regresión de endianidad de registros Xenos para LK (BE) y XeLL (lwbrx/stwbrx). */
 public final class XenosGpuSelfTest {

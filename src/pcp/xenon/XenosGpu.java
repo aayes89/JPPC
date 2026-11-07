@@ -1,4 +1,6 @@
-package pcp.gpu;
+package pcp.xenon;
+
+import pcp.gpu.Device;
 
 /**
  * Registros mínimos de la GPU Xenos (Xbox 360) en 0xEC800000, los que usan

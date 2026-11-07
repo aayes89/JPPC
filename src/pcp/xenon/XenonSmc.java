@@ -1,4 +1,6 @@
-package pcp.gpu;
+package pcp.xenon;
+
+import pcp.gpu.Device;
 
 /**
  * SMC (System Management Controller) del Xenon, FIFO de mensajes en 0xEA001080 (según libxenon):

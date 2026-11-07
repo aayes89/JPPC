@@ -5,7 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import pcp.gpu.NandImage;
-import pcp.gpu.XenonSfcx;
+import pcp.xenon.XenonSfcx;
 
 /** Prueba de geometría RAW Xenon sin distribuir una NAND real. */
 public final class NandImageSelfTest {

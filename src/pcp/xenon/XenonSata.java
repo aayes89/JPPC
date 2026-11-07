@@ -1,4 +1,6 @@
-package pcp.gpu;
+package pcp.xenon;
+
+import pcp.gpu.Device;
 
 /**
  * Modelo mínimo del task-file ATA expuesto por Xenon en 0xEA001300.
