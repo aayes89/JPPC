@@ -4,6 +4,10 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
 import java.util.Arrays;
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
@@ -18,6 +22,8 @@ import pcp.xenon.XenonBootState;
 import pcp.xenon.XenonBootStrapper;
 import pcp.xenon.XenonNandParser;
 import pcp.xenon.XenonPeLoader;
+import pcp.xenon.TKernel;
+import pcp.xenon.BootAnimationOverlay;
 
 /**
  * Uso: java pcp.PCP [archivo] [opciones] --1bl carga y ejecuta el Boot ROM 1BL
@@ -89,17 +95,48 @@ public class PCP {
         System.out.println("HMAC-SHA1: OK");
     }
 
+    /**
+     * Presenta un recurso gráfico ORIGINAL extraído de dash.xex cuando el
+     * guest todavía no consigue emitir comandos Xenos/XUI. No simula el shell:
+     * muestra literalmente un AppTile de la NAND para verificar el camino FB.
+     */
+    private static void showNandTileFallback(FrameBuffer fb, Path resource) throws Exception {
+        if (!Files.isRegularFile(resource)) {
+            System.out.println("[NAND-TILE] recurso ausente: " + resource);
+            return;
+        }
+        BufferedImage src = ImageIO.read(resource.toFile());
+        if (src == null) throw new IllegalStateException("Formato gráfico no soportado: " + resource);
+        int tileW = Math.min(320, fb.getWidth() - 32);
+        int tileH = Math.min(320, fb.getHeight() - 32);
+        BufferedImage scaled = new BufferedImage(tileW, tileH, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = scaled.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.drawImage(src, 0, 0, tileW, tileH, null);
+        g.dispose();
+        int ox = 48, oy = 112;
+        for (int y = 0; y < tileH && oy + y < fb.getHeight(); y++) {
+            for (int x = 0; x < tileW && ox + x < fb.getWidth(); x++) {
+                int argb = scaled.getRGB(x, y);
+                if ((argb >>> 24) != 0) fb.setPixel(ox + x, oy + y, argb & 0x00FFFFFF);
+            }
+        }
+        fb.present();
+        System.out.printf("[NAND-TILE] recurso original visible: %s (%dx%d) en FB %dx%d%n",
+                resource, src.getWidth(), src.getHeight(), fb.getWidth(), fb.getHeight());
+    }
+
     public static void main(String[] args) throws Exception {
         String path = "./src/pcp/TESTS/lk.elf";
         String png = "fb.png";
         String consolePng = null;
-        String fusesPath = null;//"./fuses.txt";
-        String nandPath = null;//"./src/pcp/TESTS/nand.bin";
-        String oneBLPath = null;//"./src/pcp/TESTS/1bl.bin";
+        String fusesPath = "./fuses.txt";
+        String nandPath = "./src/pcp/TESTS/nand.bin";
+        String oneBLPath = "./src/pcp/TESTS/1bl.bin";
         java.util.List<long[]> socRegs = new java.util.ArrayList<>();
         String dumpSram = null;
         boolean bootSeq = false;
-        boolean elf = true, headless = false, trace = false, vram = false, mandel = false, busTrace = false, oneBl = false, ppc32 = false, xamMode = false;
+        boolean elf = false, headless = false, trace = false, vram = false, mandel = false, busTrace = false, oneBl = true, ppc32 = false, xamMode = false, nandDashboardMode = true;
         long fbBase = -1;
         String input = null;
         java.util.List<Long> watchList = new java.util.ArrayList<>();
@@ -152,6 +189,10 @@ public class PCP {
                     break;
                 case "--xam":
                     xamMode = true;
+                    elf = false;
+                    break;
+                case "--nand-dashboard":
+                    nandDashboardMode = true;
                     elf = false;
                     break;
                 case "--boot-seq-model":
@@ -240,17 +281,81 @@ public class PCP {
             }
         }
 
+        if (nandDashboardMode) {
+            w = 1280;
+            h = 720;
+            if (nandPath == null) nandPath = "./nandDump/original/nand.bin";
+            if (fbBase < 0) fbBase = PPCSimulator.FB_BASE_ELF;
+        }
         PPCSimulator ppcs = new PPCSimulator(w, h);
         XenonPeLoader.LoadedImage xam = null;
-        if (xamMode) {
+        TKernel runtimeKernel = null;
+        XenonPeLoader.LoadedImage bootanimImage = null;
+        if (nandDashboardMode) {
+            XenonPeLoader loader = new XenonPeLoader();
+            Path root = Paths.get("./nandDump/image");
+            Path xamPath = root.resolve("xam.xex.pe");
+            Path animPath = root.resolve("bootanim.xex.pe");
+            Path dashPath = root.resolve("dash.xex.pe");
+            for (Path required : new Path[]{xamPath, animPath, dashPath}) {
+                if (!Files.isRegularFile(required)) {
+                    throw new IllegalStateException("Falta imagen NAND extraída: " + required.toAbsolutePath());
+                }
+            }
+            xam = loader.load(xamPath, ppcs.getMemory());
+            XenonPeLoader.LoadedImage bootanim = loader.load(animPath, ppcs.getMemory());
+            XenonPeLoader.LoadedImage dash = loader.load(dashPath, ppcs.getMemory());
+            runtimeKernel = new TKernel(ppcs);
+            Path imports = Paths.get("./nandDump/extracted/manifests/imports.csv");
+            int xamImports = runtimeKernel.installImports(imports, "xam.xex");
+            int animImports = runtimeKernel.installImports(imports, "bootanim.xex");
+            runtimeKernel.registerBootAnimationModule(bootanim,
+                    Paths.get("./nandDump/fs/bootanim.xex"),
+                    Paths.get("./nandDump/extracted/resources/bootanim.xex"));
+            Path bootApis = Paths.get("./nandDump/extracted/manifests/boot_api_imports.csv");
+            int dashXamImports = runtimeKernel.installXamImports(imports, "dash.xex", bootApis);
+            System.out.printf("[NAND-BOOT] XAM=%08X BOOTANIM=%08X DASH=%08X%n",
+                    xam.getEntryPoint(), bootanim.getEntryPoint(), dash.getEntryPoint());
+            System.out.printf("[NAND-BOOT] IMPORTS XAM=%d BOOTANIM=%d DASH<-XAM=%d%n",
+                    xamImports, animImports, dashXamImports);
+            if (!bootanim.hasEntryPoint()) {
+                System.out.println("[NAND-BOOT] bootanim es módulo kernel-managed; no se fuerza un PC ficticio.");
+            }
+            ppcs.setFbBase(fbBase);
+            ppcs.initializeXenonFramebuffer();
+            File fbInit = new File("fb-init.png");
+            ppcs.getFrameBuffer().savePNG(fbInit);
+            System.out.println("[NAND-BOOT] Captura de inicialización FB: " + fbInit.getAbsolutePath());
+            // XAM controla la carga y el arranque del dashboard. dash.xex queda
+            // mapeado y con imports XAM enlazados, pero no se ejecuta aquí.
+            path = xamPath.toString();
+            xamMode = false;
+        } else if (xamMode) {
             XenonPeLoader loader = new XenonPeLoader();
             Path xamPath = Paths.get("./nandDump/image/xam.xex.pe");
             if (!Files.isRegularFile(xamPath)) {
                 throw new IllegalStateException("No existe la imagen PE de XAM: " + xamPath.toAbsolutePath());
             }
             xam = loader.load(xamPath, ppcs.getMemory());
-            System.out.printf("XAM BASE=%08X ENTRY=%08X SIZE=%08X%n",
+            Path bootanimPath = Paths.get("./nandDump/image/bootanim.xex.pe");
+            if (!Files.isRegularFile(bootanimPath)) {
+                throw new IllegalStateException("No existe bootanim.xex.pe: " + bootanimPath.toAbsolutePath());
+            }
+            bootanimImage = loader.load(bootanimPath, ppcs.getMemory());
+            runtimeKernel = new TKernel(ppcs);
+            Path imports = Paths.get("./nandDump/extracted/manifests/imports.csv");
+            int xamImports = runtimeKernel.installImports(imports, "xam.xex");
+            int animImports = runtimeKernel.installImports(imports, "bootanim.xex");
+            int bootanimResources = runtimeKernel.registerBootAnimationModule(bootanimImage,
+                    Paths.get("./nandDump/fs/bootanim.xex"),
+                    Paths.get("./nandDump/extracted/resources/bootanim.xex"));
+            System.out.printf("[XAM-BOOT] BOOTANIM resources mapped=%d%n", bootanimResources);
+            System.out.printf("[XAM-BOOT] BASE=%08X ENTRY=%08X SIZE=%08X%n",
                     xam.getImageBase(), xam.getEntryPoint(), xam.getSizeOfImage());
+            System.out.printf("[XAM-BOOT] BOOTANIM BASE=%08X ENTRY=%08X SIZE=%08X HAS_ENTRY=%b%n",
+                    bootanimImage.getImageBase(), bootanimImage.getEntryPoint(), bootanimImage.getSizeOfImage(), bootanimImage.hasEntryPoint());
+            System.out.printf("[XAM-BOOT] IMPORTS XAM=%d BOOTANIM=%d; PPC32 sc dispatch enabled%n",
+                    xamImports, animImports);
         }
         if (fusesPath != null) {
             ppcs.loadFuses(Path.of(fusesPath));
@@ -279,15 +384,19 @@ public class PCP {
             ppcs.addSocRegister(r[0], r[1]);
         }
 
-        if (oneBl) {
+        if (nandDashboardMode) {
+            // La imagen dash.xex.pe y su contexto ya están cargados arriba.
+        } else if (oneBl) {
             if (oneBLPath == null) {
                 throw new IllegalArgumentException("--1bl requiere configurar la ruta de 1BL");
             }
             ppcs.load1BL(oneBLPath);
-        } else if (xamMode) {
-            xam.start(ppcs.getCpu(), PPCSimulator.MEMORY_SIZE);
-            System.out.printf("[XAM-BOOT] Transferencia de control: PC=%08X r1=%08X%n",
-                    ppcs.getCpu().getPc(), ppcs.getCpu().getGPRVal(1));
+        } else if (xamMode || nandDashboardMode) {
+            long xamThreadExit = 0x9FFC0010L;
+            long aniStartThunk = runtimeKernel.getImportThunk("xam.xex", "xboxkrnl.exe", 678);
+            runtimeKernel.installBootAnimationStartupHook(ppcs.getCpu(), 0x9FF00000L,
+                    aniStartThunk, xam.getEntryPoint(), xamThreadExit);
+            System.out.printf("[XAM-BOOT] Guest shim ejecutará import ordinal 678 antes de entrar en XAM.%n");
         } else if (elf) {
             ppcs.loadELF(path);
         } else {
@@ -312,6 +421,21 @@ public class PCP {
             }
         }
         FrameBuffer fb = ppcs.getFrameBuffer();
+        BootAnimationOverlay bootAnimationOverlay = null;
+        if (xamMode) {
+            Path logoPath = Paths.get("./nandDump/extracted/resources/xam.xex/xam/xenonLogo.png");
+            if (Files.isRegularFile(logoPath)) {
+                try {
+                    bootAnimationOverlay = new BootAnimationOverlay(logoPath);
+                    System.out.println("[BOOTANIM-SCREEN] Recurso gráfico original XAM cargado.");
+                } catch (Exception e) {
+                    System.err.println("[BOOTANIM-SCREEN] Error cargando recurso XAM: " + e.getMessage());
+                }
+            } else {
+                System.err.println("[BOOTANIM-SCREEN] No existe el logo XAM: " + logoPath);
+            }
+        }
+        // El modo headless no simula ni sustituye la salida guest con gráficos host.
 
         if (headless) {
             long n = ppcs.runBlocking(max);
@@ -339,6 +463,9 @@ public class PCP {
         }
 
         final boolean fVram = vram, fMandel = mandel;
+        final TKernel fKernel = runtimeKernel;
+        final BootAnimationOverlay fBootOverlay = bootAnimationOverlay;
+        final pcp.xenon.BootAnimationAudio bootAudio = pcp.xenon.BootAnimationAudio.fromDefaultNand();
         SwingUtilities.invokeLater(() -> {
             JFrame frame = new JFrame("JPPC - PowerPC / framebuffer + consola UART");
             FrameBufferPanel panel = new FrameBufferPanel(fb.getWidth(), fb.getHeight(), fb.getFramebuffer());
@@ -389,6 +516,14 @@ public class PCP {
             // ~30 FPS: VRAM (lo que escribe la CPU) -> imagen lineal -> pantalla
             new Timer(33, e -> {
                 if (fb.isDirty()) fb.present();
+                if (fKernel != null && fKernel.isBootAnimationRequested()) {
+                    bootAudio.startOnce();
+                    if (fBootOverlay != null) {
+                        panel.setOverlayFrame(fBootOverlay.render(fb.getWidth(), fb.getHeight()));
+                    }
+                } else {
+                    panel.setOverlayFrame(null);
+                }
                 panel.repaint();
                 long[][] history = ppcs.getCpu().getExecutionTrace();
                 StringBuilder traceText = new StringBuilder(8192);

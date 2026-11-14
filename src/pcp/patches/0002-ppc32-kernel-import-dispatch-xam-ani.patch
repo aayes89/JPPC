@@ -1,0 +1,468 @@
+--- a/PCP.java
++++ b/PCP.java
+@@ -288,6 +288,8 @@
+         }
+         PPCSimulator ppcs = new PPCSimulator(w, h);
+         XenonPeLoader.LoadedImage xam = null;
++        TKernel runtimeKernel = null;
++        XenonPeLoader.LoadedImage bootanimImage = null;
+         if (nandDashboardMode) {
+             XenonPeLoader loader = new XenonPeLoader();
+             Path root = Paths.get("./nandDump/image");
+@@ -302,12 +304,13 @@
+             xam = loader.load(xamPath, ppcs.getMemory());
+             XenonPeLoader.LoadedImage bootanim = loader.load(animPath, ppcs.getMemory());
+             XenonPeLoader.LoadedImage dash = loader.load(dashPath, ppcs.getMemory());
+-            TKernel kernel = new TKernel(ppcs);
++            runtimeKernel = new TKernel(ppcs);
+             Path imports = Paths.get("./nandDump/extracted/manifests/imports.csv");
+-            kernel.installImports(imports, "xam.xex");
+-            kernel.installImports(imports, "bootanim.xex");
++            runtimeKernel.installImports(imports, "xam.xex");
++            runtimeKernel.installImports(imports, "bootanim.xex");
++            runtimeKernel.registerBootAnimationModule(bootanim);
+             Path bootApis = Paths.get("./nandDump/extracted/manifests/boot_api_imports.csv");
+-            kernel.installXamImports(imports, "dash.xex", bootApis);
++            runtimeKernel.installXamImports(imports, "dash.xex", bootApis);
+             System.out.printf("[NAND-BOOT] XAM=%08X BOOTANIM=%08X DASH=%08X%n",
+                     xam.getEntryPoint(), bootanim.getEntryPoint(), dash.getEntryPoint());
+             if (!bootanim.hasEntryPoint()) {
+@@ -335,8 +338,22 @@
+                 throw new IllegalStateException("No existe la imagen PE de XAM: " + xamPath.toAbsolutePath());
+             }
+             xam = loader.load(xamPath, ppcs.getMemory());
+-            System.out.printf("XAM BASE=%08X ENTRY=%08X SIZE=%08X%n",
++            Path bootanimPath = Paths.get("./nandDump/image/bootanim.xex.pe");
++            if (!Files.isRegularFile(bootanimPath)) {
++                throw new IllegalStateException("No existe bootanim.xex.pe: " + bootanimPath.toAbsolutePath());
++            }
++            bootanimImage = loader.load(bootanimPath, ppcs.getMemory());
++            runtimeKernel = new TKernel(ppcs);
++            Path imports = Paths.get("./nandDump/extracted/manifests/imports.csv");
++            int xamImports = runtimeKernel.installImports(imports, "xam.xex");
++            int animImports = runtimeKernel.installImports(imports, "bootanim.xex");
++            runtimeKernel.registerBootAnimationModule(bootanimImage);
++            System.out.printf("[XAM-BOOT] BASE=%08X ENTRY=%08X SIZE=%08X%n",
+                     xam.getImageBase(), xam.getEntryPoint(), xam.getSizeOfImage());
++            System.out.printf("[XAM-BOOT] BOOTANIM BASE=%08X ENTRY=%08X SIZE=%08X HAS_ENTRY=%b%n",
++                    bootanimImage.getImageBase(), bootanimImage.getEntryPoint(), bootanimImage.getSizeOfImage(), bootanimImage.hasEntryPoint());
++            System.out.printf("[XAM-BOOT] IMPORTS XAM=%d BOOTANIM=%d; PPC32 sc dispatch enabled%n",
++                    xamImports, animImports);
+         }
+         if (fusesPath != null) {
+             ppcs.loadFuses(Path.of(fusesPath));
+@@ -373,9 +390,11 @@
+             }
+             ppcs.load1BL(oneBLPath);
+         } else if (xamMode) {
+-            xam.start(ppcs.getCpu(), PPCSimulator.MEMORY_SIZE);
+-            System.out.printf("[XAM-BOOT] Transferencia de control: PC=%08X r1=%08X%n",
+-                    ppcs.getCpu().getPc(), ppcs.getCpu().getGPRVal(1));
++            long xamThreadExit = 0x9FFC0010L;
++            long aniStartThunk = runtimeKernel.getImportThunk("xam.xex", "xboxkrnl.exe", 678);
++            runtimeKernel.installBootAnimationStartupHook(ppcs.getCpu(), 0x9FF00000L,
++                    aniStartThunk, xam.getEntryPoint(), xamThreadExit);
++            System.out.printf("[XAM-BOOT] Guest shim ejecutará import ordinal 678 antes de entrar en XAM.%n");
+         } else if (elf) {
+             ppcs.loadELF(path);
+         } else {
+--- a/PPCSimulator.java
++++ b/PPCSimulator.java
+@@ -54,6 +54,7 @@
+     private final XenonBootController bootController = new XenonBootController();
+     private final XenonFuses fuses = new XenonFuses();
+     private final java.util.List<CPU> threads = new java.util.ArrayList<>();
++    private CPU.SystemCallHandler systemCallHandler;
+     private int threadCount = 1;
+     private boolean threadsPrepared = false;
+     private boolean threadsUserSet = false;
+@@ -466,6 +467,7 @@
+         cpu.setPir(0);
+         for (int i = 1; i < threadCount; i++) {
+             CPU t = new CPU(bus, new CacheController(bus, MEMORY_SIZE, true));
++            t.setSystemCallHandler(systemCallHandler);
+             t.setPir(i);
+             t.setTbIncrement(inc);
+             t.setPc(cpu.getPc());
+@@ -617,6 +619,12 @@
+         return cpu;
+     }
+ 
++    /** Instala el puente de llamadas de sistema en el núcleo y en los hilos futuros. */
++    public void setSystemCallHandler(CPU.SystemCallHandler handler) {
++        this.systemCallHandler = handler;
++        for (CPU threadCpu : threads) threadCpu.setSystemCallHandler(handler);
++    }
++
+     public XenonUart getUart() {
+         return uart;
+     }
+--- a/cpu/CPU.java
++++ b/cpu/CPU.java
+@@ -47,6 +47,18 @@
+  */
+ public class CPU {
+ 
++    /** Host bridge para llamadas de sistema PPC (sc) originadas por import thunks. */
++    @FunctionalInterface
++    public interface SystemCallHandler {
++        long invoke(CPU cpu, int serviceNumber);
++    }
++
++    private volatile SystemCallHandler systemCallHandler;
++
++    public void setSystemCallHandler(SystemCallHandler handler) {
++        this.systemCallHandler = handler;
++    }
++
+     private DecodingInstr decode = new DecodingInstr();
+     private final Bus bus;
+     // Variable para modo debug
+@@ -840,9 +852,21 @@
+                 case 16: // bc
+                     branchConditional(insn, 0);
+                     break;
+-                case 17: // sc
+-                    takeException(ExceptionHandler.EXCEPTION_SYSTEM_CALL, pc + 4, 0);
++                case 17: { // sc
++                    SystemCallHandler handler = systemCallHandler;
++                    if (handler == null) {
++                        takeException(ExceptionHandler.EXCEPTION_SYSTEM_CALL, pc + 4, 0);
++                    } else {
++                        int serviceNumber = (int) (gpr[0] & M32);
++                        long returnAddress = lr;
++                        long result = handler.invoke(this, serviceNumber);
++                        w(3, result & M32);
++                        // Los import thunks son llamadas de función: sc debe
++                        // volver al LR establecido por bl/bctrl, no a pc+4.
++                        nextPc = addressWidth(returnAddress);
++                    }
+                     break;
++                }
+                 case 18: { // b
+                     long li = ((insn & 0x03FFFFFC) << 6) >> 6;
+                     long target = (insn & 2) != 0 ? li : pc + li;
+--- a/xenon/TKernel.java
++++ b/xenon/TKernel.java
+@@ -28,15 +28,19 @@
+  * retornan el estado esperado y mantienen estado del subsistema.
+  */
+ public final class TKernel {
+-    private static final int PPC_LI_R3_0 = 0x38600000;
+-    private static final int PPC_BLR = 0x4E800020;
+-    private static final int PPC_LI_R3_1 = 0x38600001;
++    private static final int PPC_LI_R0_BASE = 0x38000000; // li r0, imm16
++    private static final int PPC_SC = 0x44000002;
+     private static final int STATUS_NOT_IMPLEMENTED = 0xC0000002;
+ 
+     private final PPCSimulator simulator;
+     private final Bus bus;
+     private final Memory memory;
+     private final Map<Integer, String> namedKernelOrdinals = new LinkedHashMap<>();
++    private final Map<String, Long> importThunkAddresses = new HashMap<>();
++    private long bootAnimationImageBase;
++    private long bootAnimationImageSize;
++    private boolean bootAnimationModuleLoaded;
++    private boolean bootAnimationModuleHasEntryPoint;
+     private int installedThunks;
+     private int unknownThunks;
+     private boolean enginesInitialized;
+@@ -50,6 +54,14 @@
+         this.bus = simulator.getBus();
+         this.memory = simulator.getMemory();
+         loadKnownNames();
++        simulator.setSystemCallHandler((cpu, serviceNumber) -> {
++            long result = invokeKernelExport(serviceNumber, cpu);
++            if (serviceNumber == 678) {
++                System.out.printf("[TKERNEL] DISPATCH ordinal=%d AniStartBootAnimation PC=%08X LR=%08X r3=%08X%n",
++                        serviceNumber, cpu.getPc(), cpu.getLr(), cpu.getGPRVal(3));
++            }
++            return result;
++        });
+     }
+ 
+     private void loadKnownNames() {
+@@ -92,16 +104,13 @@
+                 int ordinal = Integer.parseInt(c[3], 16);
+                 long thunk = Long.parseLong(c[5], 16);
+                 if (thunk == 0 || (thunk & 3) != 0) continue;
+-                // PPC32 leaf thunk: li r3,0 / blr for known kernel services;
+-                // STATUS_NOT_IMPLEMENTED / blr for unknown ordinals.
+-                boolean known = namedKernelOrdinals.containsKey(ordinal);
+-                if (known) {
+-                    memory.writeMemoryWord(thunk, PPC_LI_R3_0);
+-                    memory.writeMemoryWord(thunk + 4, PPC_BLR);
+-                } else {
+-                    memory.writeMemoryWord(thunk, 0x3C60C000); // lis r3,0xC000
+-                    memory.writeMemoryWord(thunk + 4, 0x60630002); // ori r3,r3,2
+-                    memory.writeMemoryWord(thunk + 8, PPC_BLR);
++                importThunkAddresses.put(importKey(module, "xboxkrnl.exe", ordinal), thunk & 0xFFFFFFFFL);
++                // Real guest-side dispatch: li r0, ordinal; sc.
++                // The CPU's system-call bridge executes the kernel service and
++                // returns through the caller's LR, preserving r3-r10 arguments.
++                memory.writeMemoryWord(thunk, PPC_LI_R0_BASE | (ordinal & 0xFFFF));
++                memory.writeMemoryWord(thunk + 4, PPC_SC);
++                if (!namedKernelOrdinals.containsKey(ordinal)) {
+                     unknownThunks++;
+                     unknown++;
+                 }
+@@ -114,6 +123,68 @@
+         return count;
+     }
+ 
++    private static String importKey(String module, String library, int ordinal) {
++        return module.toLowerCase(java.util.Locale.ROOT) + "|"
++                + library.toLowerCase(java.util.Locale.ROOT) + "|" + ordinal;
++    }
++
++    public long getImportThunk(String module, String library, int ordinal) {
++        Long address = importThunkAddresses.get(importKey(module, library, ordinal));
++        if (address == null) throw new IllegalStateException("Import thunk no instalado: "
++                + module + " -> " + library + " ordinal " + ordinal);
++        return address;
++    }
++
++    /** Registra la imagen bootanim cargada como módulo kernel-managed. */
++    public void registerBootAnimationModule(XenonPeLoader.LoadedImage image) {
++        if (image == null) throw new IllegalArgumentException("Imagen bootanim nula");
++        bootAnimationImageBase = image.getImageBase();
++        bootAnimationImageSize = image.getSizeOfImage();
++        bootAnimationModuleHasEntryPoint = image.hasEntryPoint();
++        bootAnimationModuleLoaded = true;
++        System.out.printf("[TKERNEL] BOOTANIM REGISTERED base=%08X size=%08X entry=%08X hasEntry=%b%n",
++                bootAnimationImageBase, bootAnimationImageSize, image.getEntryPoint(), bootAnimationModuleHasEntryPoint);
++    }
++
++    /**
++     * Instala un shim de arranque PPC32 que llama al import real de XAM
++     * AniStartBootAnimation y después transfiere el control al entrypoint XAM.
++     * El shim es explícito y queda fuera de las imágenes retail.
++     */
++    public void installBootAnimationStartupHook(CPU cpu, long hookAddress,
++            long aniStartThunk, long xamEntry, long threadExit) {
++        checkGuestAddress(hookAddress, "hookAddress");
++        checkGuestAddress(aniStartThunk, "aniStartThunk");
++        checkGuestAddress(xamEntry, "xamEntry");
++        checkGuestAddress(threadExit, "threadExit");
++        int p = 0;
++        p = emitLoadAddress(hookAddress, p, 12, aniStartThunk);
++        memory.writeMemoryWord(hookAddress + p, 0x7D8903A6); p += 4; // mtctr r12
++        memory.writeMemoryWord(hookAddress + p, 0x4E800421); p += 4; // bctrl -> import thunk
++        p = emitLoadAddress(hookAddress, p, 12, threadExit);
++        memory.writeMemoryWord(hookAddress + p, 0x7D8803A6); p += 4; // mtlr r12
++        p = emitLoadAddress(hookAddress, p, 12, xamEntry);
++        memory.writeMemoryWord(hookAddress + p, 0x7D8903A6); p += 4; // mtctr r12
++        memory.writeMemoryWord(hookAddress + p, 0x4E800420); p += 4; // bctr -> XAM
++        cpu.setMsr(cpu.getMsr() & 0x7FFFFFFFFFFFFFFFL);
++        cpu.setGPR(1, 0x9FFFFDB0L);
++        cpu.setLr(threadExit);
++        cpu.writeMemoryWord(0x9FFFFFF8L, (int) threadExit);
++        cpu.writeMemoryWord(0x9FFFFF88L, (int) threadExit);
++        memory.writeMemoryWord(threadExit, 0x48000000); // b . : thread-exit sentinel
++        cpu.setPc(hookAddress);
++        System.out.printf("[TKERNEL] BOOT HOOK=%08X -> AniStart thunk=%08X -> XAM=%08X%n",
++                hookAddress, aniStartThunk, xamEntry);
++    }
++
++    private int emitLoadAddress(long base, int offset, int reg, long address) {
++        int hi = (int) ((address >>> 16) & 0xFFFF);
++        int lo = (int) (address & 0xFFFF);
++        memory.writeMemoryWord(base + offset, 0x3C000000 | (reg << 21) | hi); offset += 4; // lis rN,hi
++        memory.writeMemoryWord(base + offset, 0x60000000 | (reg << 21) | (reg << 16) | lo); offset += 4; // ori rN,rN,lo
++        return offset;
++    }
++
+     /**
+      * Enlaza imports de dash.xex cuya biblioteca es xam.xex. El manifiesto
+      * boot_api_imports.csv contiene direcciones de exportación de XAM para
+@@ -235,8 +306,12 @@
+         if (name == null) return unsigned(STATUS_NOT_IMPLEMENTED);
+         switch (name) {
+             case "AniStartBootAnimation":
++                if (!bootAnimationModuleLoaded) return unsigned(STATUS_NOT_IMPLEMENTED);
+                 bootAnimationRequested = true;
+                 initializeBootDisplay();
++                System.out.printf("[TKERNEL] AniStartBootAnimation accepted: bootanim image=%08X+%08X; %s%n",
++                        bootAnimationImageBase, bootAnimationImageSize,
++                        bootAnimationModuleHasEntryPoint ? "guest entry available" : "kernel-managed image, no PE entrypoint");
+                 return 0;
+             case "KeDelayExecutionThread":
+                 // Scheduler cooperativo de un solo hilo: el tiempo avanza en el host.
+@@ -273,7 +348,7 @@
+     public long startBootAnimation(CPU cpu) {
+         bootAnimationRequested = true;
+         initializeBootDisplay();
+-        System.out.printf("[TKERNEL] AniStartBootAnimation: host request staged (guest dispatch pendiente), PC=%08X LR=%08X%n",
++        System.out.printf("[TKERNEL] AniStartBootAnimation: dispatch real atendido, PC=%08X LR=%08X%n",
+                 cpu.getPc(), cpu.getLr());
+         return 0;
+     }
+--- a/tests/run-xam-entry-smoke.sh
++++ b/tests/run-xam-entry-smoke.sh
+@@ -7,7 +7,7 @@
+ mkdir -p "$OUT"
+ find "$ROOT" -path "$ROOT/nandDump" -prune -o -path "$OUT" -prune -o -name '*.java' -print > "$OUT/sources.txt"
+ javac -encoding UTF-8 -d "$OUT/classes" @"$OUT/sources.txt"
+-java -cp "$OUT/classes" pcp.PCP --xam --headless --max 100000 --png "$OUT/xam-entry.png" > "$LOG" 2>&1
++java -Djava.awt.headless=true -cp "$OUT/classes" pcp.PCP --xam --headless --max 100000 --png "$OUT/xam-entry.png" > "$LOG" 2>&1
+ cat "$LOG"
+ grep -F "[CPU] Halt: 'b .'" "$LOG" >/dev/null
+  grep -F "halted=true" "$LOG" >/dev/null
+--- /dev/null
++++ b/tests/run-xam-bootanim-dispatch-smoke.sh
+@@ -0,0 +1,20 @@
++#!/bin/sh
++set -eu
++ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
++cd "$ROOT"
++rm -rf build
++mkdir -p build
++find . -name '*.java' -not -path './nandDump/*' -not -path './build/*' -print0 \
++  | xargs -0 javac -encoding UTF-8 -d build
++OUT=$(java -Djava.awt.headless=true -cp build pcp.PCP --xam --headless --trace --max 100000 --png build/xam-bootanim-dispatch.png 2>&1)
++printf '%s\n' "$OUT" | grep -F '[TKERNEL] BOOTANIM REGISTERED base=98000000'
++printf '%s\n' "$OUT" | grep -F '[TKERNEL] AniStartBootAnimation accepted:'
++printf '%s\n' "$OUT" | grep -F '[TKERNEL] DISPATCH ordinal=678 AniStartBootAnimation PC=81A72348 LR=9FF00010'
++printf '%s\n' "$OUT" | grep -F 'PC=81696af0 insn='
++printf '%s\n' "$OUT" | grep -F "Halt: 'b .' en PC=0x9ffc0010"
++printf '%s\n' "$OUT" | grep -F '[headless] 213 instrucciones, PC=0x9ffc0010, halted=true'
++if printf '%s\n' "$OUT" | grep -F 'bootanim guest entry executed'; then
++  echo 'ERROR: no debe afirmarse ejecución guest de bootanim sin entrypoint' >&2
++  exit 1
++fi
++echo 'XAM_BOOTANIM_DISPATCH_SMOKE_OK: PPC32 sc dispatch -> XAM import ordinal 678 -> XAM entry -> thread exit; bootanim registered as kernel-managed (no PE entrypoint).'
+--- /dev/null
++++ b/README-KERNEL-IMPORT-DISPATCH.md
+@@ -0,0 +1,50 @@
++# PPC32 Xbox kernel import dispatch and XAM boot-animation hook
++
++## Import thunk ABI
++
++`TKernel.installImports()` now replaces each executable `xboxkrnl.exe` import thunk with two guest PPC32 instructions:
++
++- `li r0, ordinal`
++- `sc`
++
++`CPU` exposes a `SystemCallHandler`. For a handled `sc`, it passes the service number from `r0` to the kernel bridge, writes the 32-bit return value to `r3`, and resumes at the caller's `LR`. The normal PPC argument registers `r3-r10` are left intact. Unnamed/unimplemented ordinals return `STATUS_NOT_IMPLEMENTED` (`0xC0000002`) instead of a false success.
++
++This is an emulator system-call bridge, not a claim that all 906 XAM imports have full Xbox 360 kernel semantics. The current manifest installs 443 executable XAM import thunks; 432 ordinal numbers do not yet have named service implementations.
++
++## AniStartBootAnimation
++
++For `--xam`, the loader now:
++
++1. Loads `xam.xex.pe` at its PE image base.
++2. Loads `bootanim.xex.pe` at `0x98000000`.
++3. Installs the XAM and bootanim Xbox-kernel import thunks.
++4. Registers bootanim as a kernel-managed module.
++5. Installs an emulator-only PPC32 boot shim at `0x9FF00000`.
++6. The shim calls XAM's actual imported thunk for `xboxkrnl!AniStartBootAnimation` (ordinal 678, thunk `0x81A72344`) using `bctrl`, then branches to XAM's PE entrypoint `0x81696AF0`.
++
++The import dispatch is guest-executed: the CPU fetches `li r0,678; sc` from the real XAM thunk. The kernel bridge accepts the request and initializes the currently modeled display state.
++
++The shim is not retail XAM code and does not patch the XAM PE image. It is a boot-time compatibility hook used because the current startup path does not reach the animation import on its own.
++
++## bootanim.xex execution boundary
++
++`bootanim.xex.pe` is loaded and its imports are installed, but its PE `AddressOfEntryPoint` and XEX entry point are both zero. Its PE export directory has no exported functions. The `.XBMOVIE` section has a 12-byte virtual size and is zero-filled in this image. Therefore there is no supported guest entry address to call. The kernel registers the module and accepts `AniStartBootAnimation`; it does **not** jump to an invented function address inside `.text`.
++
++This means the current test proves:
++
++- PPC32 import dispatch works for the tested ordinal.
++- The actual XAM import thunk for ordinal 678 is executed by the guest CPU.
++- The bootanim image is mapped and registered as kernel-managed.
++- XAM's entrypoint executes and reaches the configured thread-exit sentinel.
++
++It does **not** prove that bootanim guest code ran or that the retail animation rendered. The current display/GPU path is still incomplete: `VdInitialize*` changes modeled state only, PM4 command processing and Xenos draw execution are not implemented, and the framebuffer remains black.
++
++## Test
++
++```sh
++./tests/run-xam-bootanim-dispatch-smoke.sh
++```
++
++Expected marker:
++
++`XAM_BOOTANIM_DISPATCH_SMOKE_OK`
+--- /dev/null
++++ b/XAM-BOOTANIM-STATUS.md
+@@ -0,0 +1,43 @@
++# XAM / bootanim runtime result
++
++Date: 2026-11-10
++
++## Implemented and verified
++
++- Added a PPC32 `sc` bridge to `CPU`.
++- Kernel import thunks now execute `li r0, ordinal; sc` rather than returning zero from a fake leaf stub.
++- The bridge preserves guest argument registers `r3-r10`, writes the service result to `r3`, and returns through the guest `LR`.
++- The bridge is installed on the primary CPU and propagated to secondary CPUs created by `PPCSimulator`.
++- Unknown kernel ordinals return `0xC0000002` (`STATUS_NOT_IMPLEMENTED`).
++- XAM and bootanim executable import thunks are installed from `imports.csv`.
++- XAM import ordinal 678 is looked up from the manifest (guest thunk `0x81A72344`).
++- `--xam` runs an emulator-only guest boot shim at `0x9FF00000`; it calls the actual XAM thunk via `bctrl`, dispatches `AniStartBootAnimation`, then transfers to XAM entrypoint `0x81696AF0`.
++- `bootanim.xex.pe` is mapped at `0x98000000`, its imports are installed, and the module is registered with the kernel service.
++- The XAM entrypoint reaches the configured thread-exit sentinel without the previous PC=0 exception.
++
++## Verified run
++
++Command:
++
++```sh
++java -Djava.awt.headless=true -cp build pcp.PCP --xam --headless --trace --max 100000 --png build/xam-bootanim-dispatch.png
++```
++
++Observed evidence:
++
++```text
++[TKERNEL] BOOTANIM REGISTERED base=98000000 size=00087000 entry=00000000 hasEntry=false
++[TKERNEL] AniStartBootAnimation accepted: bootanim image=98000000+00087000; kernel-managed image, no PE entrypoint
++[TKERNEL] DISPATCH ordinal=678 AniStartBootAnimation PC=81A72348 LR=9FF00010 r3=00000000
++PC=81696af0 insn=3b400001
++[CPU] Halt: 'b .' en PC=0x9ffc0010
++[headless] 213 instrucciones, PC=0x9ffc0010, halted=true
++```
++
++`tests/run-xam-bootanim-dispatch-smoke.sh`, `tests/run-xam-entry-smoke.sh`, `tests/run-stack-smoke.sh`, and `tests/run-bootanim-preview-smoke.sh` pass.
++
++## Explicit limitation: bootanim guest code
++
++The module's XEX entry point and PE `AddressOfEntryPoint` are both `0`. Its PE export directory contains no exported function. The `.XBMOVIE` section has a 12-byte virtual size and is zero-filled. There is no supported guest entrypoint to invoke. The implementation deliberately does not jump to an arbitrary `.text` function or fabricate an entry address.
++
++Therefore, the verified result is **XAM import dispatch + AniStartBootAnimation service acceptance + bootanim image registration**, not execution of bootanim's internal guest `.text` and not retail animation playback. The service currently initializes modeled display state only. Xenos PM4 command processing/draw execution remains absent, and the framebuffer remains black.
+--- /dev/null
++++ b/tests/run-all-smoke.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++set -euo pipefail
++ROOT="$(cd "$(dirname "$0")/.." && pwd)"
++cd "$ROOT"
++./tests/run-stack-smoke.sh
++./tests/run-bootanim-preview-smoke.sh
++./tests/run-xam-bootanim-dispatch-smoke.sh
++./tests/run-xam-entry-smoke.sh
+--- /dev/null
++++ b/DELIVERY-XAM-BOOTANIM-DISPATCH.md
+@@ -0,0 +1,22 @@
++# Delivery: PPC32 kernel import dispatch / XAM animation request
++
++Updated project delivery for 2026-11-10.
++
++## Changes
++
++- `cpu/CPU.java`: system-call callback for PPC `sc`; service ID in `r0`, result in `r3`, return via `LR`.
++- `PPCSimulator.java`: propagates the kernel callback to primary and secondary CPU threads.
++- `xenon/TKernel.java`: executable import thunks dispatch to kernel services; unknown ordinals return `STATUS_NOT_IMPLEMENTED`; bootanim registration and XAM boot hook added.
++- `PCP.java`: `--xam` maps XAM and bootanim, installs imports, registers bootanim, and enters through the emulator-side boot hook.
++- `tests/run-xam-bootanim-dispatch-smoke.sh`: verifies ordinal 678 dispatch and XAM entry/exit.
++- `tests/run-xam-entry-smoke.sh`: now runs correctly in headless environments.
++
++## Execution result
++
++PASS: `./tests/run-all-smoke.sh`
++
++The XAM guest import thunk at `0x81A72344` executes `li r0,678; sc`. The bridge dispatches `AniStartBootAnimation`, returns to the guest shim, and the shim transfers to XAM entrypoint `0x81696AF0`. XAM reaches thread-exit sentinel `0x9FFC0010` after 213 instructions.
++
++## Not completed / no false claim
++
++`bootanim.xex.pe` is mapped at `0x98000000`, imports are installed, and the kernel registers it. The XEX/PE entrypoint is zero, its export directory has no exported functions, and its `.XBMOVIE` virtual section is zero-filled. The binary supplies no valid guest entrypoint. Thus this delivery does **not** claim to have executed bootanim's internal guest code or rendered the retail animation. PM4/Xenos command processing and real animation playback remain unimplemented. See `XAM-BOOTANIM-STATUS.md` and `README-KERNEL-IMPORT-DISPATCH.md`.

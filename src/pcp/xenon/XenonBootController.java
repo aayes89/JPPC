@@ -51,18 +51,33 @@ public final class XenonBootController {
     public static final long SEQUENCE_COMMAND = XENON_BASE + 0x47120L;
     public static final long AUX_CONTROL = XENON_BASE + 0x48020L;
 
-    // Ventana de intercambio de configuración.
-    public static final long CONFIG_BASE = XENON_BASE + 0x61008L;
-    public static final long CONFIG_END = XENON_BASE + 0x61017L;
+    // Ventana de salida POST. 0x61010 recibe el código en el byte más
+    // significativo del word escrito por el 1BL (0x10, 0x11, ...).
+    // No es un command/config ring: es exclusivamente diagnóstico.
+    public static final long POST_BASE = XENON_BASE + 0x61008L;
+    public static final long POST_END = XENON_BASE + 0x61017L;
+    public static final long POST_STATUS = XENON_BASE + 0x61008L;
+    public static final long POST_OUTPUT = XENON_BASE + 0x61010L;
 
-    public static final long CONFIG_STATUS = XENON_BASE + 0x61008L;
-    public static final long CONFIG_COMMAND = XENON_BASE + 0x61010L;
+    /**
+     * Alias de compatibilidad con código de diagnóstico anterior.
+     * CONFIG_COMMAND no representa un comando de hardware.
+     */
+    @Deprecated
+    public static final long CONFIG_BASE = POST_BASE;
+    @Deprecated
+    public static final long CONFIG_END = POST_END;
+    @Deprecated
+    public static final long CONFIG_STATUS = POST_STATUS;
+    @Deprecated
+    public static final long CONFIG_COMMAND = POST_OUTPUT;
 
     private final Map<Long, Byte> registers = new HashMap<>();
+    private final XenonPostCodeTracker postTracker = new XenonPostCodeTracker();
 
     private final DeviceWindow initWindow = new DeviceWindow(INIT_BASE, INIT_END);
 
-    private final DeviceWindow configWindow = new DeviceWindow(CONFIG_BASE, CONFIG_END);
+    private final DeviceWindow postWindow = new DeviceWindow(POST_BASE, POST_END);
 
     private boolean trace;
 
@@ -94,15 +109,21 @@ public final class XenonBootController {
         }
 
         bus.attachDevice(initWindow, INIT_BASE, INIT_END);
-        bus.attachDevice(configWindow, CONFIG_BASE, CONFIG_END);
+        bus.attachDevice(postWindow, POST_BASE, POST_END);
 
         System.out.println("[XENON-BOOT] Controlador MMIO conectado");
-        System.out.printf("[XENON-BOOT] INIT   0x%016X - 0x%016X%n", INIT_BASE, INIT_END);
-        System.out.printf("[XENON-BOOT] CONFIG 0x%016X - 0x%016X%n", CONFIG_BASE, CONFIG_END);
+        System.out.printf("[XENON-BOOT] INIT 0x%016X - 0x%016X%n", INIT_BASE, INIT_END);
+        System.out.printf("[XENON-BOOT] POST 0x%016X - 0x%016X (output=0x%016X)%n",
+                POST_BASE, POST_END, POST_OUTPUT);
     }
 
     public void setTrace(boolean enabled) {
         trace = enabled;
+    }
+
+    /** Historial real de códigos escritos por el firmware en el puerto POST. */
+    public XenonPostCodeTracker getPostTracker() {
+        return postTracker;
     }
 
     /**
@@ -148,6 +169,16 @@ public final class XenonBootController {
         writeByte(address + 2, (byte) (value >>> 8));
         writeByte(address + 3, (byte) value);
 
+        if (address == POST_OUTPUT) {
+            int code = (value >>> 24) & 0xFF;
+            XenonPostCodeTracker.Entry entry = postTracker.record(code);
+            System.out.printf("[POST] #%03d 0x%02X %s%n",
+                    entry.sequence, entry.code, entry.description);
+            if (entry.hasViolation()) {
+                System.out.printf("[POST-WARN] %s%n", entry.orderViolation);
+            }
+        }
+
         if (trace) {
             System.out.printf("[XENON-BOOT] WRITE32 EA=0x%016X VALUE=0x%08X%n", address, value);
         }
@@ -160,6 +191,7 @@ public final class XenonBootController {
     public synchronized void reset() {
         registers.clear();
         sequenceState = 0;
+        postTracker.reset();
     }
 
     private byte readByte(long address) {

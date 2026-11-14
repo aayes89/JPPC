@@ -48,6 +48,13 @@ public final class XenonPeLoader {
 
     private static final int COFF_HEADER_SIZE = 20;
     private static final int SECTION_HEADER_SIZE = 40;
+    /*
+     * Los PE extraídos de esta NAND conservan los raw pointers del PE original,
+     * pero el extractor antepone 0x3D200 bytes de metadatos XEX antes del
+     * payload de secciones. Se detecta por la sección ejecutable, no se aplica
+     * ciegamente a PE convencionales.
+     */
+    private static final long XEX_SECTION_DATA_BIAS = 0x3D200L;
 
     public static final class Section {
 
@@ -210,8 +217,13 @@ public final class XenonPeLoader {
                 long slot = stackTop - 152L + (reg - 14) * 8L;
                 cpu.writeMemoryDouble(slot, 0L);
             }
+            // El startup thunk de esta NAND restaura LR desde -8(r1), no desde
+            // el slot convencional +8(r1). El slot debe contener el trap
+            // de salida del hilo; de lo contrario el BLR final salta a 0.
+            cpu.writeMemoryWord(stackTop - 120L, threadExit);
             cpu.writeMemoryWord(stackTop - 8L, threadExit);
             cpu.writeMemoryWord(threadExit, 0x48000000L);
+            System.out.printf("[XEX-PE] THREAD-EXIT slot=%08X value=%08X trap=%08X readback=%08X\n", stackTop - 120L, threadExit, threadExit, cpu.readMemoryWord(stackTop - 120L));
             cpu.setLr(threadExit);
             cpu.setGPR(1, stackTop - 112L);
             cpu.setPc(entryPoint);
@@ -404,24 +416,6 @@ public final class XenonPeLoader {
                 );
             }
 
-            if (rawSize > 0) {
-
-                requireRange(
-                        file,
-                        rawOffset,
-                        rawSize,
-                        "Datos de sección " + name
-                );
-
-                System.arraycopy(
-                        file,
-                        (int) rawOffset,
-                        mapped,
-                        (int) virtualAddress,
-                        (int) rawSize
-                );
-            }
-
             sections.add(new Section(
                     name,
                     virtualAddress,
@@ -430,6 +424,24 @@ public final class XenonPeLoader {
                     rawSize,
                     characteristics
             ));
+        }
+
+        // Algunas imágenes XEX extraídas conservan un raw pointer inválido
+        // únicamente en .text. El payload PPC de esa sección está en +0x3D200;
+        // .rdata/.pdata/.data y demás secciones sí usan su raw pointer normal.
+        for (Section section : sections) {
+            if (section.rawSize <= 0) continue;
+            long source = section.rawOffset;
+            if ((section.characteristics & 0x20000000L) != 0
+                    && section.rawSize >= 16
+                    && isZeroRange(file, source, 16)
+                    && hasNonZeroRange(file, source + XEX_SECTION_DATA_BIAS, 16)) {
+                source += XEX_SECTION_DATA_BIAS;
+                System.out.printf("[XEX-PE] %s raw pointer corregido: +%05X\n", section.name, XEX_SECTION_DATA_BIAS);
+            }
+            requireRange(file, source, section.rawSize, "Datos de sección " + section.name);
+            System.arraycopy(file, (int) source, mapped,
+                    (int) section.virtualAddress, (int) section.rawSize);
         }
 
         /*
@@ -469,6 +481,20 @@ public final class XenonPeLoader {
         }
 
         return result;
+    }
+
+    private static boolean isZeroRange(byte[] data, long offset, int length)
+            throws IOException {
+        requireRange(data, offset, length, "detección raw section");
+        for (int i = 0; i < length; i++) if (data[(int) offset + i] != 0) return false;
+        return true;
+    }
+
+    private static boolean hasNonZeroRange(byte[] data, long offset, int length)
+            throws IOException {
+        requireRange(data, offset, length, "detección payload section");
+        for (int i = 0; i < length; i++) if (data[(int) offset + i] != 0) return true;
+        return false;
     }
 
     private static int u16(byte[] data, int offset)

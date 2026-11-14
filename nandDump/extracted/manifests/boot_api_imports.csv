@@ -1,0 +1,28 @@
+module,library,ordinal_decimal,export_name,address_17559_map,purpose
+bootanim.xex,xboxkrnl.exe,90,KeDelayExecutionThread,0x80072B58,thread scheduling
+bootanim.xex,xboxkrnl.exe,210,NtCreateFile,0x8006CAA8,file access
+bootanim.xex,xboxkrnl.exe,240,NtReadFile,0x8006CEC8,file access
+bootanim.xex,xboxkrnl.exe,450,VdInitializeEngines,0x800C7E18,GPU/display initialization
+bootanim.xex,xboxkrnl.exe,451,VdInitializeRingBuffer,0x800BF8D8,GPU command ring
+bootanim.xex,xboxkrnl.exe,467,VdSetDisplayMode,0x800C7650,display mode
+bootanim.xex,xboxkrnl.exe,468,VdSetDisplayModeOverride,0x800C6B58,display mode override
+bootanim.xex,xboxkrnl.exe,476,VdShutdownEngines,0x800C7F60,GPU/display shutdown
+bootanim.xex,xboxkrnl.exe,477,VdTurnDisplayOff,0x800C5ED8,display control
+bootanim.xex,xboxkrnl.exe,548,XMACreateContext,0x801324F0,XMA audio context
+bootanim.xex,xboxkrnl.exe,550,XMAReleaseContext,0x801324F8,XMA audio context
+xam.xex,xboxkrnl.exe,610,AniBlockOnAnimation,0x80061810,wait for animation
+xam.xex,xboxkrnl.exe,611,AniTerminateAnimation,0x80061818,terminate animation
+xam.xex,xboxkrnl.exe,613,AniSetLogo,0x80061838,boot logo selection
+xam.xex,xboxkrnl.exe,678,AniStartBootAnimation,0x80061730,start boot animation
+dash.xex,xam.xex,401,XamInputGetState,0x816F14E8,controller state
+dash.xex,xam.xex,408,XamInputGetKeystrokeEx,0x816F4778,keyboard/input
+dash.xex,xam.xex,421,XamLoaderLaunchTitleEx,0x816A0D70,launch title
+dash.xex,xam.xex,425,XamLoaderTerminateTitle,0x816A1458,terminate title
+dash.xex,xam.xex,460,XamSetDashContext,0x816E1680,dashboard context
+dash.xex,xam.xex,461,XamGetDashContext,0x816E16E0,dashboard context
+dash.xex,xam.xex,501,XMsgCompleteIORequest,0x816A2588,async I/O
+dash.xex,xam.xex,507,XamGetOverlappedResult,0x816A2898,async I/O
+dash.xex,xam.xex,520,XamUserGetDeviceContext,0x816D8A58,user/device context
+dash.xex,xam.xex,522,XamUserGetXUID,0x816D8590,user identity
+dash.xex,xam.xex,524,XamUserGetGamerTag,0x816D86A8,gamer tag
+dash.xex,xam.xex,525,XamUserGetUserIndexMask,0x816D8720,user slots

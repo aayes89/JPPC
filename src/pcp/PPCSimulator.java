@@ -54,6 +54,7 @@ public class PPCSimulator {
     private final XenonBootController bootController = new XenonBootController();
     private final XenonFuses fuses = new XenonFuses();
     private final java.util.List<CPU> threads = new java.util.ArrayList<>();
+    private CPU.SystemCallHandler systemCallHandler;
     private int threadCount = 1;
     private boolean threadsPrepared = false;
     private boolean threadsUserSet = false;
@@ -165,6 +166,16 @@ public class PPCSimulator {
 
     public long getFbBase() {
         return fbBase;
+    }
+
+    /** Inicializa y conecta la superficie Xenos antes de transferir el control al guest. */
+    public void initializeXenonFramebuffer() {
+        elfMode = true;
+        frameBuffer.setTileMode(2);
+        attachFb();
+        frameBuffer.present();
+        System.out.printf("[XENOS-FB] READY BASE=%08X SIZE=%dx%d PITCH=%d TILE=%d%n",
+                fbBase, fbW, fbH, frameBuffer.getPitchBytes(), frameBuffer.getTileMode());
     }
 
     /**
@@ -456,6 +467,7 @@ public class PPCSimulator {
         cpu.setPir(0);
         for (int i = 1; i < threadCount; i++) {
             CPU t = new CPU(bus, new CacheController(bus, MEMORY_SIZE, true));
+            t.setSystemCallHandler(systemCallHandler);
             t.setPir(i);
             t.setTbIncrement(inc);
             t.setPc(cpu.getPc());
@@ -605,6 +617,12 @@ public class PPCSimulator {
 
     public CPU getCpu() {
         return cpu;
+    }
+
+    /** Instala el puente de llamadas de sistema en el núcleo y en los hilos futuros. */
+    public void setSystemCallHandler(CPU.SystemCallHandler handler) {
+        this.systemCallHandler = handler;
+        for (CPU threadCpu : threads) threadCpu.setSystemCallHandler(handler);
     }
 
     public XenonUart getUart() {

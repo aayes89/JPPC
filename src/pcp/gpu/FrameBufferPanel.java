@@ -23,6 +23,7 @@ public class FrameBufferPanel extends JPanel {
     private final int height;
     private final int[] framebuffer;
     private final transient BufferedImage image;
+    private volatile BufferedImage overlayFrame;
 
     public FrameBufferPanel(int width, int height, int[] framebuffer) {
         this.width = width;
@@ -37,6 +38,11 @@ public class FrameBufferPanel extends JPanel {
         setPreferredSize(new Dimension(width, height));
     }
 
+    public void setOverlayFrame(BufferedImage frame) {
+        this.overlayFrame = frame;
+        repaint();
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -45,7 +51,9 @@ public class FrameBufferPanel extends JPanel {
         float scale = Math.min((float) panelW / width, (float) panelH / height);
         int displayW = (int) (width * scale);
         int displayH = (int) (height * scale);
-        g.drawImage(image, (panelW - displayW) / 2, (panelH - displayH) / 2, displayW, displayH, null);
+        BufferedImage overlay = overlayFrame;
+        g.drawImage(overlay != null ? overlay : image,
+                (panelW - displayW) / 2, (panelH - displayH) / 2, displayW, displayH, null);
     }
 
     public int[] getFb() {

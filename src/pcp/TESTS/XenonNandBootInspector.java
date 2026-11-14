@@ -62,14 +62,17 @@ public final class XenonNandBootInspector {
         if (cbHeader[0] != CB_MAGIC[0] || cbHeader[1] != CB_MAGIC[1])
             throw new IOException(String.format("Magic CB inválido en 0x%X", cbOffset));
         int cbVersion = be16(cbHeader, 2);
-        int cbSize = checkedOffset(be32(cbHeader, 4), 0x100000, "tamaño CB");
+        int cbSize = checkedOffset(be32(cbHeader, 0x0C), 0x100000, "tamaño CB");
         if (cbSize < CB_HEADER_SIZE || cbSize > (cfOffset > cbOffset ? cfOffset - cbOffset : 0x10000))
             throw new IOException(String.format("Tamaño CB fuera de rango: 0x%X", cbSize));
 
         byte[] encrypted = readLogical(nand, cbOffset, cbSize);
         byte[] derived = hmacSha1(oneBlKey, Arrays.copyOfRange(encrypted, 0x10, 0x20));
         byte[] rc4Key = Arrays.copyOf(derived, 16);
-        rc4(encrypted, CB_HEADER_SIZE, cbSize - CB_HEADER_SIZE, rc4Key);
+        int alignedSize = (cbSize + 0x0F) & ~0x0F;
+        if (alignedSize > encrypted.length) throw new IOException("CB_A no está alineado en NAND");
+        System.arraycopy(rc4Key, 0, encrypted, 0x10, 16);
+        rc4(encrypted, CB_HEADER_SIZE, alignedSize - CB_HEADER_SIZE, rc4Key);
 
         Files.createDirectories(outputDirectory);
         Path cbOut = outputDirectory.resolve("CB_A.decrypted.bin");

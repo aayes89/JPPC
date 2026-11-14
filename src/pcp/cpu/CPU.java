@@ -47,6 +47,18 @@ import pcp.utils.ELFFile;
  */
 public class CPU {
 
+    /** Host bridge para llamadas de sistema PPC (sc) originadas por import thunks. */
+    @FunctionalInterface
+    public interface SystemCallHandler {
+        long invoke(CPU cpu, int serviceNumber);
+    }
+
+    private volatile SystemCallHandler systemCallHandler;
+
+    public void setSystemCallHandler(SystemCallHandler handler) {
+        this.systemCallHandler = handler;
+    }
+
     private DecodingInstr decode = new DecodingInstr();
     private final Bus bus;
     // Variable para modo debug
@@ -163,6 +175,36 @@ public class CPU {
     // =====================================================================
     private static final long M32 = 0xFFFFFFFFL;
     private long nextPc;
+
+    // Trazado puntual de llamadas hacia el .text de bootanim.xex.
+    private static final long BOOTANIM_TEXT_START = 0x9800E000L;
+    private static final long BOOTANIM_TEXT_END = 0x9805733CL;
+    private final java.util.Set<Long> tracedBootAnimationCallSites = new java.util.HashSet<>();
+
+    private static boolean isBootAnimationText(long address) {
+        long a = address & 0xFFFFFFFFL;
+        return a >= BOOTANIM_TEXT_START && a < BOOTANIM_TEXT_END;
+    }
+
+    private void traceBootAnimationCall(int insn, int op) {
+        boolean linkedBranch = false;
+        if (op == 16 || op == 18) {
+            linkedBranch = (insn & 1) != 0;
+        } else if (op == 19) {
+            int xo = (insn >>> 1) & 0x3FF;
+            linkedBranch = (xo == 16 || xo == 528) && (insn & 1) != 0;
+        }
+        long key = ((pc & 0xFFFFFFFFL) << 32) | (nextPc & 0xFFFFFFFFL);
+        if (!linkedBranch || !isBootAnimationText(nextPc)
+                || !tracedBootAnimationCallSites.add(key)) {
+            return;
+        }
+        System.out.printf(
+                "[BOOTANIM-CALL] CPU=%d FROM=%08X TO=%08X INS=%08X LR=%08X r3=%08X r4=%08X r5=%08X r6=%08X r7=%08X r8=%08X r9=%08X r10=%08X r1=%08X%n",
+                pir, pc, nextPc, insn, lr,
+                (int) gpr[3], (int) gpr[4], (int) gpr[5], (int) gpr[6],
+                (int) gpr[7], (int) gpr[8], (int) gpr[9], (int) gpr[10], (int) gpr[1]);
+    }
 
     private long addressWidth(long address) {
         return sf() ? address : address & M32;
@@ -840,9 +882,21 @@ public class CPU {
                 case 16: // bc
                     branchConditional(insn, 0);
                     break;
-                case 17: // sc
-                    takeException(ExceptionHandler.EXCEPTION_SYSTEM_CALL, pc + 4, 0);
+                case 17: { // sc
+                    SystemCallHandler handler = systemCallHandler;
+                    if (handler == null) {
+                        takeException(ExceptionHandler.EXCEPTION_SYSTEM_CALL, pc + 4, 0);
+                    } else {
+                        int serviceNumber = (int) (gpr[0] & M32);
+                        long returnAddress = lr;
+                        long result = handler.invoke(this, serviceNumber);
+                        w(3, result & M32);
+                        // Los import thunks son llamadas de función: sc debe
+                        // volver al LR establecido por bl/bctrl, no a pc+4.
+                        nextPc = addressWidth(returnAddress);
+                    }
                     break;
+                }
                 case 18: { // b
                     long li = ((insn & 0x03FFFFFC) << 6) >> 6;
                     long target = (insn & 2) != 0 ? li : pc + li;
@@ -1154,6 +1208,7 @@ public class CPU {
             lastIllegalInsn = insn & M32;
             takeException(ExceptionHandler.EXCEPTION_PROGRAM, pc, 0x00080000L);
         }
+        traceBootAnimationCall(insn, op);
         if (nextPc != addressWidth(pc + 4)) {
             /*System.out.printf(
                     "[PC-CHANGE] OLD=%016X NEXT=%016X INS=%08X OP=%02X LR=%016X CTR=%016X%n",
