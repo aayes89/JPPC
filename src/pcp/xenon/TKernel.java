@@ -13,6 +13,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Locale;
 import pcp.PPCSimulator;
 import pcp.cpu.CPU;
 import pcp.system.Bus;
@@ -50,6 +52,9 @@ public final class TKernel {
     private volatile boolean bootAnimationRequested;
     private final Map<String, Long> bootAnimationResources = new LinkedHashMap<>();
     private final Map<Integer, Long> dispatchCounts = new HashMap<>();
+    private XenonFlashFs flashFs;
+    private final Map<Integer, GuestFile> guestFiles = new HashMap<>();
+    private int nextGuestHandle = 0x100;
 
     public TKernel(PPCSimulator simulator) {
         if (simulator == null) throw new IllegalArgumentException("PPCSimulator no puede ser null");
@@ -91,6 +96,24 @@ public final class TKernel {
         namedKernelOrdinals.put(477, "VdTurnDisplayOff");
         namedKernelOrdinals.put(548, "XMACreateContext");
         namedKernelOrdinals.put(550, "XMAReleaseContext");
+    }
+
+    private static final int STATUS_SUCCESS = 0;
+    private static final int STATUS_INVALID_PARAMETER = 0xC000000D;
+    private static final int STATUS_INVALID_HANDLE = 0xC0000008;
+    private static final int STATUS_OBJECT_NAME_NOT_FOUND = 0xC0000034;
+    private static final int FILE_OPEN = 1;
+
+    private static final class GuestFile {
+        final XenonFlashFs.Entry entry;
+        long position;
+        GuestFile(XenonFlashFs.Entry entry) { this.entry = entry; }
+    }
+
+    public void attachFlashFileSystem(XenonFlashFs fs) {
+        this.flashFs = fs;
+        System.out.println("[TKERNEL] FlashFS attached: "
+                + (fs == null ? "none" : fs.rootInfo().toString()));
     }
 
     public PPCSimulator getSimulator() { return simulator; }
@@ -410,8 +433,9 @@ public final class TKernel {
                 displayModeSet = false;
                 return 0;
             case "NtCreateFile":
+                return ntCreateFile(cpu);
             case "NtReadFile":
-                return unsigned(STATUS_NOT_IMPLEMENTED);
+                return ntReadFile(cpu);
             default:
                 return unsigned(STATUS_NOT_IMPLEMENTED);
         }
@@ -429,6 +453,126 @@ public final class TKernel {
                 cpu.getPc(), cpu.getLr());
         return 0;
     }
+
+
+    /** NtCreateFile: apertura de solo lectura sobre la NAND flash montada. */
+    private long ntCreateFile(CPU cpu) {
+        if (flashFs == null) return unsigned(STATUS_NOT_IMPLEMENTED);
+        long handleOut = u32(cpu.getGPRVal(3));
+        long objectAttributes = u32(cpu.getGPRVal(5));
+        long ioStatus = u32(cpu.getGPRVal(6));
+        int disposition = (int) u32(cpu.getGPRVal(10));
+        if (handleOut == 0 || objectAttributes == 0 || disposition != FILE_OPEN) {
+            return unsigned(STATUS_INVALID_PARAMETER);
+        }
+        long objectName = u32(memory.readMemoryWord(objectAttributes + 8));
+        if (objectName == 0) return unsigned(STATUS_INVALID_PARAMETER);
+        int nameLength = memory.readMemoryWord(objectName) & 0xFFFF;
+        long nameBuffer = u32(memory.readMemoryWord(objectName + 4));
+        if (nameLength <= 0 || nameLength > 0x800 || (nameLength & 1) != 0 || nameBuffer == 0) {
+            return unsigned(STATUS_INVALID_PARAMETER);
+        }
+        StringBuilder path = new StringBuilder(nameLength / 2);
+        for (int i = 0; i < nameLength; i += 2) {
+            int ch = ((memory.read(nameBuffer + i) & 0xFF) << 8)
+                    | (memory.read(nameBuffer + i + 1) & 0xFF);
+            path.append((char) ch);
+        }
+        String normalized = normalizeFlashPath(path.toString());
+        XenonFlashFs.Entry entry = findFlashEntry(normalized);
+        if (entry == null) {
+            writeIoStatus(ioStatus, STATUS_OBJECT_NAME_NOT_FOUND, 0);
+            return unsigned(STATUS_OBJECT_NAME_NOT_FOUND);
+        }
+        // Mantener sólo la referencia FAT: los XEX grandes se leen por
+        // bloques mediante NtReadFile, sin duplicar el archivo completo.
+        int handle = allocateGuestHandle();
+        guestFiles.put(handle, new GuestFile(entry));
+        memory.writeMemoryWord(handleOut, handle);
+        writeIoStatus(ioStatus, STATUS_SUCCESS, 1);
+        System.out.printf("[TKERNEL] NtCreateFile '%s' -> handle=%08X size=%08X%n",
+                path, handle, entry.size);
+        return unsigned(STATUS_SUCCESS);
+    }
+
+    /** NtReadFile: lectura síncrona desde el objeto abierto por NtCreateFile. */
+    private long ntReadFile(CPU cpu) {
+        int handle = (int) u32(cpu.getGPRVal(3));
+        long ioStatus = u32(cpu.getGPRVal(7));
+        long buffer = u32(cpu.getGPRVal(8));
+        long length = u32(cpu.getGPRVal(9));
+        long byteOffsetPtr = u32(cpu.getGPRVal(10));
+        GuestFile file = guestFiles.get(handle);
+        if (file == null) {
+            writeIoStatus(ioStatus, STATUS_INVALID_HANDLE, 0);
+            return unsigned(STATUS_INVALID_HANDLE);
+        }
+        if (buffer == 0 || length > Integer.MAX_VALUE) {
+            writeIoStatus(ioStatus, STATUS_INVALID_PARAMETER, 0);
+            return unsigned(STATUS_INVALID_PARAMETER);
+        }
+        long offset = file.position;
+        if (byteOffsetPtr != 0) {
+            long high = u32(memory.readMemoryWord(byteOffsetPtr));
+            long low = u32(memory.readMemoryWord(byteOffsetPtr + 4));
+            offset = (high << 32) | low;
+        }
+        if (offset < 0 || offset > file.entry.size) {
+            writeIoStatus(ioStatus, STATUS_INVALID_PARAMETER, 0);
+            return unsigned(STATUS_INVALID_PARAMETER);
+        }
+        int count = (int) Math.min(length, file.entry.size - offset);
+        try {
+            if (count > 0) memory.writeBlock(buffer, flashFs.read(file.entry, offset, count));
+        } catch (IOException ex) {
+            writeIoStatus(ioStatus, STATUS_OBJECT_NAME_NOT_FOUND, 0);
+            return unsigned(STATUS_OBJECT_NAME_NOT_FOUND);
+        }
+        file.position = offset + count;
+        writeIoStatus(ioStatus, STATUS_SUCCESS, count);
+        return unsigned(STATUS_SUCCESS);
+    }
+
+    private int allocateGuestHandle() {
+        int start = nextGuestHandle;
+        do {
+            int candidate = nextGuestHandle;
+            nextGuestHandle += 4;
+            if (nextGuestHandle <= 0 || nextGuestHandle > 0x7FFFFFF0) nextGuestHandle = 0x100;
+            if (!guestFiles.containsKey(candidate)) return candidate;
+        } while (nextGuestHandle != start);
+        throw new IllegalStateException("Tabla de handles guest agotada");
+    }
+
+    private void writeIoStatus(long address, int status, int information) {
+        if (address == 0) return;
+        memory.writeMemoryWord(address, status);
+        memory.writeMemoryWord(address + 4, information);
+    }
+
+    private XenonFlashFs.Entry findFlashEntry(String normalizedPath) {
+        XenonFlashFs.Entry exact = flashFs.find(normalizedPath);
+        if (exact != null) return exact;
+        String base = normalizedPath;
+        int slash = base.lastIndexOf('/');
+        if (slash >= 0) base = base.substring(slash + 1);
+        exact = flashFs.find(base);
+        if (exact != null) return exact;
+        for (XenonFlashFs.Entry entry : flashFs.entries()) {
+            String candidate = normalizeFlashPath(entry.name);
+            if (normalizedPath.endsWith("/" + candidate)) return entry;
+        }
+        return null;
+    }
+
+    private static String normalizeFlashPath(String value) {
+        String path = value.replace('\\', '/').toLowerCase(Locale.ROOT);
+        while (path.startsWith("/")) path = path.substring(1);
+        while (path.contains("//")) path = path.replace("//", "/");
+        return path;
+    }
+
+    private static long u32(long value) { return value & 0xFFFFFFFFL; }
 
     private static long unsigned(int value) { return value & 0xFFFFFFFFL; }
 }

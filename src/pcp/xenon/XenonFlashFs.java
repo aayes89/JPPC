@@ -314,6 +314,37 @@ public final class XenonFlashFs {
         return out;
     }
 
+    /** Lee un rango sin materializar el archivo completo en memoria host. */
+    public byte[] read(Entry e, long offset, int length) throws IOException {
+        if (e == null) throw new IOException("Entrada NAND nula");
+        if (offset < 0 || length < 0 || offset > e.size) {
+            throw new IOException("Rango de lectura inválido para " + e.name);
+        }
+        int count = (int) Math.min((long) length, e.size - offset);
+        byte[] out = new byte[count];
+        if (count == 0) return out;
+
+        List<Integer> blocks = chain(e);
+        int copied = 0;
+        long cursor = offset;
+        while (copied < count) {
+            int chainIndex = (int) (cursor / BLOCK_SIZE);
+            int inBlock = (int) (cursor % BLOCK_SIZE);
+            if (chainIndex >= blocks.size()) {
+                throw new IOException("Cadena FAT incompleta para " + e.name);
+            }
+            long source = (long) blocks.get(chainIndex) * BLOCK_SIZE + inBlock;
+            int chunk = Math.min(count - copied, BLOCK_SIZE - inBlock);
+            if (source < 0 || source + chunk > logical.length) {
+                throw new IOException("Bloque fuera de NAND en " + e.name);
+            }
+            System.arraycopy(logical, (int) source, out, copied, chunk);
+            copied += chunk;
+            cursor += chunk;
+        }
+        return out;
+    }
+
     public byte[] read(Entry e) throws IOException {
         List<Integer> chain = chain(e);
         if (e.size > Integer.MAX_VALUE) {

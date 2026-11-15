@@ -21,6 +21,7 @@ import pcp.xenon.XenonBootImage;
 import pcp.xenon.XenonBootState;
 import pcp.xenon.XenonBootStrapper;
 import pcp.xenon.XenonNandParser;
+import pcp.xenon.XenonFlashFs;
 import pcp.xenon.XenonPeLoader;
 import pcp.xenon.TKernel;
 import pcp.xenon.BootAnimationOverlay;
@@ -136,7 +137,7 @@ public class PCP {
         java.util.List<long[]> socRegs = new java.util.ArrayList<>();
         String dumpSram = null;
         boolean bootSeq = false;
-        boolean elf = false, headless = false, trace = false, vram = false, mandel = false, busTrace = false, oneBl = true, ppc32 = false, xamMode = false, nandDashboardMode = true;
+        boolean elf = false, headless = false, trace = false, vram = false, mandel = false, busTrace = false, oneBl = true, ppc32 = false, xamMode = false, nandDashboardMode = false;
         long fbBase = -1;
         String input = null;
         java.util.List<Long> watchList = new java.util.ArrayList<>();
@@ -296,28 +297,27 @@ public class PCP {
             Path root = Paths.get("./nandDump/image");
             Path xamPath = root.resolve("xam.xex.pe");
             Path animPath = root.resolve("bootanim.xex.pe");
-            Path dashPath = root.resolve("dash.xex.pe");
-            for (Path required : new Path[]{xamPath, animPath, dashPath}) {
+            for (Path required : new Path[]{xamPath, animPath}) {
                 if (!Files.isRegularFile(required)) {
                     throw new IllegalStateException("Falta imagen NAND extraída: " + required.toAbsolutePath());
                 }
             }
             xam = loader.load(xamPath, ppcs.getMemory());
             XenonPeLoader.LoadedImage bootanim = loader.load(animPath, ppcs.getMemory());
-            XenonPeLoader.LoadedImage dash = loader.load(dashPath, ppcs.getMemory());
             runtimeKernel = new TKernel(ppcs);
+            XenonNandParser retailNand = XenonNandParser.load(Paths.get(nandPath));
+            XenonFlashFs flashFs = XenonFlashFs.open(retailNand);
+            runtimeKernel.attachFlashFileSystem(flashFs);
             Path imports = Paths.get("./nandDump/extracted/manifests/imports.csv");
             int xamImports = runtimeKernel.installImports(imports, "xam.xex");
             int animImports = runtimeKernel.installImports(imports, "bootanim.xex");
             runtimeKernel.registerBootAnimationModule(bootanim,
                     Paths.get("./nandDump/fs/bootanim.xex"),
                     Paths.get("./nandDump/extracted/resources/bootanim.xex"));
-            Path bootApis = Paths.get("./nandDump/extracted/manifests/boot_api_imports.csv");
-            int dashXamImports = runtimeKernel.installXamImports(imports, "dash.xex", bootApis);
-            System.out.printf("[NAND-BOOT] XAM=%08X BOOTANIM=%08X DASH=%08X%n",
-                    xam.getEntryPoint(), bootanim.getEntryPoint(), dash.getEntryPoint());
-            System.out.printf("[NAND-BOOT] IMPORTS XAM=%d BOOTANIM=%d DASH<-XAM=%d%n",
-                    xamImports, animImports, dashXamImports);
+            System.out.printf("[NAND-BOOT] XAM=%08X BOOTANIM=%08X%n",
+                    xam.getEntryPoint(), bootanim.getEntryPoint());
+            System.out.printf("[NAND-BOOT] IMPORTS XAM=%d BOOTANIM=%d; FlashFS entries=%d%n",
+                    xamImports, animImports, flashFs.entries().size());
             if (!bootanim.hasEntryPoint()) {
                 System.out.println("[NAND-BOOT] bootanim es módulo kernel-managed; no se fuerza un PC ficticio.");
             }
@@ -326,10 +326,10 @@ public class PCP {
             File fbInit = new File("fb-init.png");
             ppcs.getFrameBuffer().savePNG(fbInit);
             System.out.println("[NAND-BOOT] Captura de inicialización FB: " + fbInit.getAbsolutePath());
-            // XAM controla la carga y el arranque del dashboard. dash.xex queda
-            // mapeado y con imports XAM enlazados, pero no se ejecuta aquí.
+            // El control permanece en XAM; el dashboard se abrirá mediante sus
+            // solicitudes de archivos al kernel, nunca mediante un salto host.
             path = xamPath.toString();
-            xamMode = false;
+            xamMode = true;
         } else if (xamMode) {
             XenonPeLoader loader = new XenonPeLoader();
             Path xamPath = Paths.get("./nandDump/image/xam.xex.pe");
