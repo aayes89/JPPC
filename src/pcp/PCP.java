@@ -137,7 +137,7 @@ public class PCP {
         java.util.List<long[]> socRegs = new java.util.ArrayList<>();
         String dumpSram = null;
         boolean bootSeq = false;
-        boolean elf = false, headless = false, trace = false, vram = false, mandel = false, busTrace = false, oneBl = true, ppc32 = false, xamMode = false, nandDashboardMode = false;
+        boolean elf = false, headless = false, trace = false, vram = false, mandel = false, busTrace = false, oneBl = true, ppc32 = false, xamMode = false, nandDashboardMode = true;
         long fbBase = -1;
         String input = null;
         java.util.List<Long> watchList = new java.util.ArrayList<>();
