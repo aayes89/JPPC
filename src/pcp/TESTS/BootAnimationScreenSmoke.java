@@ -1,4 +1,4 @@
-package pcp.xenon;
+package pcp.TESTS;
 
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
@@ -10,6 +10,7 @@ import javax.imageio.ImageWriter;
 import javax.imageio.metadata.IIOMetadata;
 import javax.imageio.metadata.IIOMetadataNode;
 import javax.imageio.stream.ImageOutputStream;
+import pcp.xenon.BootAnimationOverlay;
 
 public final class BootAnimationScreenSmoke {
     public static void main(String[] args) throws Exception {

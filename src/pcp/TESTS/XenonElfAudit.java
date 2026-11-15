@@ -66,6 +66,7 @@ public final class XenonElfAudit {
     }
 
     public static void main(String[] args) throws Exception {
+        args = new String[]{"./src/pcp/TESTS/xenon.elf", "--extract-logo", "queSale.txt"};
         if (args.length != 1 && args.length != 3) {
             System.err.println("Uso: java pcp.utils.XenonElfAudit xenon.elf [--extract-logo salida.txt]");
             System.exit(2);

@@ -159,6 +159,7 @@ public final class XenonNandBootInspector {
     }
 
     public static void main(String[] args) throws Exception {
+        args = new String[]{"./src/pcp/TESTS/nand.bin","./nandRAW"};
         if (args.length != 2) {
             System.err.println("Uso: XenonNandBootInspector <nand.raw> <output-dir>");
             System.err.println("Las claves 1BL y CPU se solicitan de forma interactiva y no se guardan.");

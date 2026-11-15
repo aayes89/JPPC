@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Locale;
 import pcp.PPCSimulator;
 import pcp.cpu.CPU;
+import pcp.gpu.Device;
 import pcp.system.Bus;
 import pcp.system.Memory;
 
@@ -324,6 +325,92 @@ public final class TKernel {
         return linked;
     }
 
+
+    /**
+     * Alias experimental de kernel virtual para el arranque dashboard compat.
+     * Mapea sólo FFFF8000-FFFF8FFF al último MiB de RAM física; no altera el
+     * espejo normal 80000000-9FFFFFFF ni pisa la pila de arranque.
+     */
+    public void installCompatibilityKernelMirror() {
+        final long physicalBase = 0x1FFF8000L;
+        final long virtualBase = 0xFFFF8000L;
+        bus.attachDevice(new Device() {
+            @Override public boolean containsAddress(long offset) {
+                return offset >= 0 && offset < 0x1000;
+            }
+            @Override public byte read(long offset) {
+                return memory.read(physicalBase + offset);
+            }
+            @Override public void write(long offset, byte value) {
+                memory.write(physicalBase + offset, value);
+            }
+        }, virtualBase, virtualBase + 0xFFF);
+        for (long offset = 0; offset < 0x1000; offset += 4) {
+            memory.writeMemoryWord(physicalBase + offset, 0x4E800020);
+        }
+        System.out.printf("[TKERNEL] COMPAT kernel mirror %08X-%08X -> %08X%n",
+                virtualBase, virtualBase + 0xFFF, physicalBase);
+    }
+
+    /**
+     * Enlaza los imports reales de un XEX contra exports XAM conocidos.
+     * En modo compatibilidad los exports ausentes reciben un stub PPC32 que
+     * devuelve STATUS_SUCCESS; queda aislado del arranque retail normal.
+     */
+    public int installXamImportsFromXex(XexFile xex, byte[] peImage,
+            String module, Path exportManifest, boolean compatibilityStubs)
+            throws IOException {
+        if (xex == null || peImage == null) throw new IOException("XEX/PE nulo");
+        if (!Files.isRegularFile(exportManifest)) {
+            throw new IOException("No existe manifiesto de exports XAM: " + exportManifest);
+        }
+        Map<Integer, Long> exports = new HashMap<>();
+        try (BufferedReader in = Files.newBufferedReader(exportManifest, StandardCharsets.UTF_8)) {
+            String line = in.readLine();
+            while ((line = in.readLine()) != null) {
+                String[] c = line.split(",", -1);
+                if (c.length < 5 || !module.equalsIgnoreCase(c[0])
+                        || !"xam.xex".equalsIgnoreCase(c[1])) continue;
+                int ordinal = Integer.parseInt(c[2]);
+                long address = Long.decode(c[4]) & 0xFFFFFFFFL;
+                if (address != 0) exports.put(ordinal, address);
+            }
+        }
+
+        int linked = 0, stubbed = 0, ignored = 0;
+        for (XexFile.ImportEntry entry : xex.importEntries(peImage)) {
+            if (!"xam.xex".equalsIgnoreCase(entry.library) || entry.typeFlag != 1) {
+                ignored++;
+                continue;
+            }
+            Long target = exports.get(entry.ordinal);
+            long thunk = entry.thunkAddress & 0xFFFFFFFFL;
+            if (thunk == 0 || (thunk & 3L) != 0) {
+                ignored++;
+                continue;
+            }
+            if (target != null) {
+                int hi = (int) ((target >>> 16) & 0xFFFF);
+                int lo = (int) (target & 0xFFFF);
+                memory.writeMemoryWord(thunk,      0x3D800000 | hi); // lis r12,target@h
+                memory.writeMemoryWord(thunk + 4,  0x618C0000 | lo); // ori r12,r12,target@l
+                memory.writeMemoryWord(thunk + 8,  0x7D8903A6);      // mtctr r12
+                memory.writeMemoryWord(thunk + 12, 0x4E800420);      // bctr
+                linked++;
+            } else if (compatibilityStubs) {
+                // li r3,0; blr. No modifica LR ni el frame del llamador.
+                memory.writeMemoryWord(thunk, 0x38600000);
+                memory.writeMemoryWord(thunk + 4, 0x4E800020);
+                stubbed++;
+            } else {
+                ignored++;
+            }
+        }
+        installedThunks += linked + stubbed;
+        System.out.printf("[TKERNEL] XAM LINK %s: linked=%d compatibility-stubs=%d ignored=%d exports=%d%n",
+                module, linked, stubbed, ignored, exports.size());
+        return linked + stubbed;
+    }
 
     /**
      * Prepara y reanuda un hilo PPC32 mediante un trampoline residente en RAM.

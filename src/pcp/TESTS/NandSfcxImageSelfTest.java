@@ -13,6 +13,7 @@ public final class NandSfcxImageSelfTest {
         sfcx.writeWord(offset, Integer.reverseBytes(value));
     }
     public static void main(String[] args) throws Exception {
+        args = new String[]{"./src/pcp/TESTS/nand.bin"};
         if (args.length != 1) throw new IllegalArgumentException("Uso: NandSfcxImageSelfTest <nand.raw>");
         NandImage nand = NandImage.load(Paths.get(args[0]));
         final int offset = 0x4200;

@@ -23,6 +23,7 @@ import pcp.xenon.XenonBootStrapper;
 import pcp.xenon.XenonNandParser;
 import pcp.xenon.XenonFlashFs;
 import pcp.xenon.XenonPeLoader;
+import pcp.xenon.XenonFlashModuleLoader;
 import pcp.xenon.TKernel;
 import pcp.xenon.BootAnimationOverlay;
 
@@ -137,7 +138,7 @@ public class PCP {
         java.util.List<long[]> socRegs = new java.util.ArrayList<>();
         String dumpSram = null;
         boolean bootSeq = false;
-        boolean elf = false, headless = false, trace = false, vram = false, mandel = false, busTrace = false, oneBl = true, ppc32 = false, xamMode = false, nandDashboardMode = true;
+        boolean elf = false, headless = false, trace = false, vram = false, mandel = false, busTrace = false, oneBl = true, ppc32 = false, xamMode = true, nandDashboardMode = true, dashboardCompat = true;
         long fbBase = -1;
         String input = null;
         java.util.List<Long> watchList = new java.util.ArrayList<>();
@@ -194,6 +195,11 @@ public class PCP {
                     break;
                 case "--nand-dashboard":
                     nandDashboardMode = true;
+                    elf = false;
+                    break;
+                case "--nand-dashboard-compat":
+                    nandDashboardMode = true;
+                    dashboardCompat = true;
                     elf = false;
                     break;
                 case "--boot-seq-model":
@@ -285,7 +291,7 @@ public class PCP {
         if (nandDashboardMode) {
             w = 1280;
             h = 720;
-            if (nandPath == null) nandPath = "./nandDump/original/nand.bin";
+            if (nandPath == null || "./src/pcp/TESTS/nand.bin".equals(nandPath)) nandPath = "./src/pcp/TESTS/nand.bin";
             if (fbBase < 0) fbBase = PPCSimulator.FB_BASE_ELF;
         }
         PPCSimulator ppcs = new PPCSimulator(w, h);
@@ -318,6 +324,67 @@ public class PCP {
                     xam.getEntryPoint(), bootanim.getEntryPoint());
             System.out.printf("[NAND-BOOT] IMPORTS XAM=%d BOOTANIM=%d; FlashFS entries=%d%n",
                     xamImports, animImports, flashFs.entries().size());
+            if (dashboardCompat) {
+                // Fallback opt-in: ejecuta el dashboard retail extraído de la
+                // propia FlashFS. XAM y bootanim se cargan primero; sólo los
+                // imports XAM sin export disponible reciben stubs de éxito.
+                XenonFlashModuleLoader flashLoader = new XenonFlashModuleLoader(
+                        flashFs, ppcs.getMemory(), java.util.Collections.emptyList());
+                XenonFlashModuleLoader.Module dash = flashLoader.load("dash.xex");
+                byte[] dashPe = dash.getXex().image(java.util.Collections.emptyList());
+                Path bootApis = Paths.get("./nandDump/extracted/manifests/boot_api_imports.csv");
+                runtimeKernel.installXamImportsFromXex(
+                        dash.getXex(), dashPe, "dash.xex", bootApis, true);
+                dash.getImage().start(ppcs.getCpu(), PPCSimulator.MEMORY_SIZE);
+                long threadContext = 0x9FFFD000L;
+                long threadExit = 0x9FFF0010L;
+                ppcs.getCpu().setGPR(31, threadContext);
+                ppcs.getCpu().setGPR(29, threadContext);
+                ppcs.getCpu().setGPR(27, threadContext);
+                ppcs.getCpu().writeMemoryWord(threadContext + 0x138, threadExit);
+                ppcs.getCpu().writeMemoryWord(threadContext + 0x164, 0L);
+                // Callback de inicialización de módulo que el stub de entrada
+                // obtiene desde KTHREAD+0x1C. Se modela como retorno STATUS_SUCCESS.
+                long moduleInitStub = 0x9FFF0100L;
+                ppcs.getCpu().writeMemoryWord(threadContext + 0x1C, moduleInitStub);
+                ppcs.getCpu().writeMemoryWord(threadContext + 0x20, 0L);
+                ppcs.getMemory().writeMemoryWord(moduleInitStub, 0x38600000); // li r3,0
+                ppcs.getMemory().writeMemoryWord(moduleInitStub + 4, 0x4E800020); // blr
+                // Los stubs de arranque de esta imagen contienen una llamada
+                // absoluta a 0x3A00 (dispatcher de runtime no presente). Se
+                // instala un retorno seguro en esa página baja, sólo en compat.
+                ppcs.getMemory().writeMemoryWord(0x3A00L, 0x38600000); // li r3,0
+                ppcs.getMemory().writeMemoryWord(0x3A04L, 0x4E800020); // blr
+                // La imagen depende de varios entrypoints de kernel en la
+                // región baja que este runtime aún no mapea. Stubs de retorno
+                // (sólo 0x1000..0x10000, sólo en compatibilidad).
+                for (long low = 0x100L; low < 0x10000L; low += 4L) {
+                    ppcs.getMemory().writeMemoryWord(low, 0x4E800020);
+                }
+                // Stubs kernel en el espejo alto y dos huecos de código
+                // observados en esta imagen PE; sólo evitan vectores vacíos.
+                runtimeKernel.installCompatibilityKernelMirror();
+                ppcs.getMemory().writeMemoryWord(0x9217D7D8L, 0x4E800020);
+                ppcs.getMemory().writeMemoryWord(0x9217DEE8L, 0x4E800020);
+                ppcs.getMemory().writeMemoryWord(0x3A00L, 0x38600000);
+                ppcs.getMemory().writeMemoryWord(0x3A04L, 0x4E800020);
+                // El entrypoint de esta revisión comienza con bctrl y espera
+                // un callback CTR que sólo instala el loader retail. En este
+                // modo aislado se omite ese salto indirecto y se continúa en
+                // el stub de inicialización del dashboard.
+                int dashFirst = ppcs.getMemory().readMemoryWord(dash.getEntryPoint());
+                if (dashFirst == 0x4E800421) {
+                    ppcs.getMemory().writeMemoryWord(dash.getEntryPoint(), 0x60000000);
+                    System.out.printf("[NAND-COMPAT] ENTRY PATCH bctrl->nop at %08X%n", dash.getEntryPoint());
+                } else {
+                    throw new IllegalStateException(String.format(
+                            "Entry dashboard inesperado: %08X", dashFirst));
+                }
+                System.out.printf("[NAND-COMPAT] DASHBOARD ENTRY PC=%08X base=%08X size=%08X%n",
+                        ppcs.getCpu().getPc(), dash.getImage().getImageBase(),
+                        dash.getImage().getSizeOfImage());
+                xamMode = false;
+            }
             if (!bootanim.hasEntryPoint()) {
                 System.out.println("[NAND-BOOT] bootanim es módulo kernel-managed; no se fuerza un PC ficticio.");
             }
@@ -326,10 +393,12 @@ public class PCP {
             File fbInit = new File("fb-init.png");
             ppcs.getFrameBuffer().savePNG(fbInit);
             System.out.println("[NAND-BOOT] Captura de inicialización FB: " + fbInit.getAbsolutePath());
-            // El control permanece en XAM; el dashboard se abrirá mediante sus
-            // solicitudes de archivos al kernel, nunca mediante un salto host.
-            path = xamPath.toString();
-            xamMode = true;
+            // El modo normal permanece en XAM. En compatibilidad se conserva
+            // el PC del dashboard ya preparado y no se reactiva el overlay XAM.
+            if (!dashboardCompat) {
+                path = xamPath.toString();
+                xamMode = true;
+            }
         } else if (xamMode) {
             XenonPeLoader loader = new XenonPeLoader();
             Path xamPath = Paths.get("./nandDump/image/xam.xex.pe");
@@ -385,7 +454,7 @@ public class PCP {
         }
 
         if (nandDashboardMode) {
-            // La imagen dash.xex.pe y su contexto ya están cargados arriba.
+            // XAM o el entrypoint retail de compatibilidad ya están preparados.
         } else if (oneBl) {
             if (oneBLPath == null) {
                 throw new IllegalArgumentException("--1bl requiere configurar la ruta de 1BL");

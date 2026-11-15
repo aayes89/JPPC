@@ -142,6 +142,18 @@ public final class XenonFuses implements Device {
             Matcher matcher = FUSESET_PATTERN.matcher(line);
 
             if (!matcher.matches()) {
+                // Algunos volcados acompañan los 12 fusesets con metadatos
+                // humanos (CPU/DVD key, 1BL, XEX1/XEX2). No son fusesets y
+                // deben ignorarse sin relajar la validación de sus registros.
+                String metadata = line.toLowerCase(java.util.Locale.ROOT);
+                if (metadata.startsWith("your cpu key :")
+                        || metadata.startsWith("your dvd key :")
+                        || metadata.startsWith("1bl:")
+                        || metadata.startsWith("cpu:")
+                        || metadata.startsWith("xex1:")
+                        || metadata.startsWith("xex2:")) {
+                    continue;
+                }
                 throw new IOException("Formato inválido en línea " + (lineNumber + 1) + ": " + line);
             }
 
