@@ -36,7 +36,7 @@ import pcp.xenon.BootAnimationOverlay;
  * PNG y termina --png salida.png archivo PNG en modo headless (por defecto
  * fb.png) --console-png salida.png captura UART como terminal de diagnóstico
  * --nand archivo.bin imagen NAND Xenon small-block (solo lectura) --fuses archivo.txt
- * fusesets del usuario --boot-cba procesa CB_A con credenciales propias --boot-credentials
+ * fusesets del usuario --boot-cba procesa CB_A --boot-cbb procesa CB_A+CB_B --boot-cd procesa CB_A+CB_B+CD --boot-kv procesa KeyVault --boot-m3 procesa CB_A+CB_B+CD+KeyVault --boot-ce procesa CE/base kernel --boot-m4 procesa CB_A+CB_B+CD+CE+KeyVault --boot-credentials
  * archivo.txt carga 1BL/CPU keys desde un archivo externo (si se omite, solicita en terminal) --max N
  * máximo de instrucciones (headless; por defecto 50 millones) --trace traza de
  * instrucciones --vram abre el visor de VRAM --fb 0xADDR dirección del
@@ -146,6 +146,10 @@ public class PCP {
         String dumpSram = null;
         boolean bootSeq = false;
         boolean processCBA = false;
+        boolean processCBB = false;
+        boolean processCD = false;
+        boolean processCE = false;
+        boolean processKeyVault = false;
         boolean elf = false, headless = false, trace = false, vram = false, mandel = false, busTrace = false, oneBl = true, ppc32 = false, xamMode = true, nandDashboardMode = true, dashboardCompat = true;
         long fbBase = -1;
         String input = null;
@@ -213,6 +217,37 @@ public class PCP {
                     break;
                 case "--boot-cba":
                     processCBA = true;
+                    break;
+                case "--boot-cbb":
+                    processCBA = true;
+                    processCBB = true;
+                    break;
+                case "--boot-cd":
+                    processCBA = true;
+                    processCBB = true;
+                    processCD = true;
+                    break;
+                case "--boot-kv":
+                    processKeyVault = true;
+                    break;
+                case "--boot-m3":
+                    processCBA = true;
+                    processCBB = true;
+                    processCD = true;
+                    processKeyVault = true;
+                    break;
+                case "--boot-ce":
+                    processCBA = true;
+                    processCBB = true;
+                    processCD = true;
+                    processCE = true;
+                    break;
+                case "--boot-m4":
+                    processCBA = true;
+                    processCBB = true;
+                    processCD = true;
+                    processCE = true;
+                    processKeyVault = true;
                     break;
                 case "--boot-credentials":
                     bootCredentialsPath = args[++i];
@@ -283,21 +318,50 @@ public class PCP {
                 fbBase = PPCSimulator.FB_BASE_ELF;
             }
         }
-        if (processCBA) {
+        if (processCBA || processCBB || processCD || processCE || processKeyVault) {
             XenonBootStrapper bootstrapper = XenonBootStrapper.load(Paths.get(nandPath));
-            XenonBootImage cbA;
-            if (bootCredentialsPath == null) {
-                try (XenonBootCredentials credentials = XenonBootCredentials.readFromUser()) {
-                    cbA = bootstrapper.prepareCBA(credentials);
+            XenonBootCredentials credentials = bootCredentialsPath == null
+                    ? XenonBootCredentials.readFromUser()
+                    : XenonBootCredentials.load(Paths.get(bootCredentialsPath));
+            try (XenonBootCredentials activeCredentials = credentials) {
+                if (processCBA || processCBB || processCD || processCE) {
+                    XenonBootImage cbA = bootstrapper.prepareCBA(activeCredentials);
+                    System.out.printf("[BOOTSTRAP] CB_A version=%04X size=%08X state=%s%n",
+                            cbA.getVersion(), cbA.getImageSize(), cbA.getState());
                 }
-            } else {
-                try (XenonBootCredentials credentials = XenonBootCredentials.load(Paths.get(bootCredentialsPath))) {
-                    cbA = bootstrapper.prepareCBA(credentials);
+                if (processCBB || processCD || processCE) {
+                    XenonBootImage cbB = bootstrapper.prepareCBB(activeCredentials);
+                    System.out.printf("[BOOTSTRAP] CB_B version=%04X size=%08X state=%s integrity=VERIFIED%n",
+                            cbB.getVersion(), cbB.getImageSize(), cbB.getState());
+                }
+                if (processCD || processCE) {
+                    XenonBootImage cd = bootstrapper.prepareCD(activeCredentials);
+                    System.out.printf("[BOOTSTRAP] CD version=%04X size=%08X state=%s integrity=VERIFIED%n",
+                            cd.getVersion(), cd.getImageSize(), cd.getState());
+                    System.out.printf("[BOOTSTRAP] CE localizado en NAND offset=0x%X%n",
+                            bootstrapper.getNand().getCEOffset());
+                }
+                if (processCE) {
+                    XenonBootImage ce = bootstrapper.prepareCE(activeCredentials);
+                    byte[] baseKernel = ce.getExpandedData();
+                    try {
+                        System.out.printf("[BOOTSTRAP] CE version=%04X stored=%08X declared=%08X state=%s target=0x%016X baseKernel=%08X%n",
+                                ce.getVersion(), ce.getImageSize(), ce.getDeclaredSize(), ce.getState(),
+                                ce.getLoadAddress(), baseKernel.length);
+                        System.out.printf("[BOOTSTRAP] BASE IMAGE magic=%02X%02X header=%02X%02X%n",
+                                baseKernel[0] & 0xFF, baseKernel[1] & 0xFF,
+                                baseKernel[2] & 0xFF, baseKernel[3] & 0xFF);
+                    } finally {
+                        java.util.Arrays.fill(baseKernel, (byte) 0);
+                    }
+                }
+                if (processKeyVault) {
+                    XenonBootImage keyVault = bootstrapper.prepareKeyVault(activeCredentials);
+                    System.out.printf("[BOOTSTRAP] KeyVault size=%08X state=%s integrity=VERIFIED%n",
+                            keyVault.getImageSize(), keyVault.getState());
                 }
             }
-            System.out.printf("[BOOTSTRAP] CB_A version=%04X size=%08X state=%s%n",
-                    cbA.getVersion(), cbA.getImageSize(), cbA.getState());
-            System.out.println("[BOOTSTRAP] CB_A descifrado; firma/integridad y CB_B pendientes.");
+            return;
         }
 
         PPCSimulator ppcs = new PPCSimulator(w, h);

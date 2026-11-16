@@ -97,7 +97,7 @@ public final class XenonBootMilestone1SelfTest {
 
     private static void testNandBootHeader() throws Exception {
         XenonNandParser nand = XenonNandParser.load(
-                Paths.get(argsPath("TESTS/nand.bin")));
+                Paths.get(argsPath("./src/pcp/TESTS/nand.bin")));
         long cbOffset = nand.getCBAOffset();
         long cfOffset = nand.getCFOffset();
         int cbSize = nand.getCBASize();

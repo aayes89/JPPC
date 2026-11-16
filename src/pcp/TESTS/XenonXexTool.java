@@ -1,4 +1,4 @@
-package pcp.xenon;
+package pcp.TESTS;
 
 import java.io.BufferedWriter;
 import java.nio.charset.StandardCharsets;
@@ -7,6 +7,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
+import pcp.xenon.XenonFlashFs;
+import pcp.xenon.XenonNandParser;
+import pcp.xenon.XexFile;
+import pcp.xenon.XuiZExtractor;
 
 /**
  * Extrae el filesystem Xenon, decodifica XEX2 y vuelca la tabla de imports.

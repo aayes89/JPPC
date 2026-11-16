@@ -57,6 +57,8 @@ public final class XenonNandParser {
     private static final int CB_HEADER_SIZE = 0x20;
     private static final int NAND_CB_OFFSET_FIELD = 0x08;
     private static final int NAND_CF_OFFSET_FIELD = 0x0C;
+    private static final int NAND_KEYVAULT_OFFSET_FIELD = 0x6C;
+    private static final int KEYVAULT_SIZE = 0x4000;
     private static final int CB_SIZE_FIELD = 0x0C;
     private static final int MAX_BOOTLOADER_SIZE = 0x100000;
 
@@ -241,6 +243,125 @@ public final class XenonNandParser {
         return extract(getCBAOffset(), getCBASize());
     }
 
+    /**
+     * CB_B se encuentra inmediatamente después de CB_A, alineado a 16 bytes.
+     * La posición r31 que CB_A entrega al siguiente loader contiene este offset.
+     */
+    public synchronized long getCBBOffset() throws IOException {
+        long offset = getCBAOffset() + align16(getCBASize());
+        validateBootloaderRange(offset, CB_HEADER_SIZE, "CB_B");
+        byte[] header = readData(offset, CB_HEADER_SIZE);
+        validateMagic(header, 'C', 'B', "CB_B");
+        return offset;
+    }
+
+    public synchronized int getCBBVersion() throws IOException {
+        byte[] header = readData(getCBBOffset(), CB_HEADER_SIZE);
+        return readU16BE(header, 2);
+    }
+
+    public synchronized int getCBBSize() throws IOException {
+        long offset = getCBBOffset();
+        byte[] header = readData(offset, CB_HEADER_SIZE);
+        long size = readU32BE(header, CB_SIZE_FIELD);
+        if (size < 0x140 || size > MAX_BOOTLOADER_SIZE || size > Integer.MAX_VALUE) {
+            throw new IOException(String.format("Tamaño CB_B inválido: 0x%X", size));
+        }
+        int aligned = align16((int) size);
+        validateBootloaderRange(offset, aligned, "CB_B");
+        long cfOffset = getCFOffset();
+        if (cfOffset > offset && offset + aligned > cfOffset) {
+            throw new IOException("CB_B invade el área CF declarada por la NAND");
+        }
+        return (int) size;
+    }
+
+    public synchronized byte[] extractCBB() throws IOException {
+        return extract(getCBBOffset(), getCBBSize());
+    }
+
+    /** Offset inmediatamente posterior a CB_B; debe comenzar CD. */
+    public synchronized long getCDOffset() throws IOException {
+        long offset = getCBBOffset() + align16(getCBBSize());
+        validateBootloaderRange(offset, 0x20, "CD");
+        byte[] header = readData(offset, 0x20);
+        validateMagic(header, 'C', 'D', "CD");
+        return offset;
+    }
+
+    public synchronized int getCDVersion() throws IOException {
+        return readU16BE(readData(getCDOffset(), 0x20), 2);
+    }
+
+    public synchronized int getCDSize() throws IOException {
+        long offset = getCDOffset();
+        byte[] header = readData(offset, 0x20);
+        long size = readU32BE(header, CB_SIZE_FIELD);
+        if (size < 0x260 || size > MAX_BOOTLOADER_SIZE || size > Integer.MAX_VALUE) {
+            throw new IOException(String.format("Tamaño CD inválido: 0x%X", size));
+        }
+        validateBootloaderRange(offset, align16((int) size), "CD");
+        return (int) size;
+    }
+
+    public synchronized byte[] extractCD() throws IOException {
+        return extract(getCDOffset(), getCDSize());
+    }
+
+    /** CE comienza inmediatamente después de CD, alineado a 16 bytes. */
+    public synchronized long getCEOffset() throws IOException {
+        long offset = getCDOffset() + align16(getCDSize());
+        validateBootloaderRange(offset, 0x20, "CE");
+        validateMagic(readData(offset, 0x20), 'C', 'E', "CE");
+        return offset;
+    }
+
+    public synchronized int getCEVersion() throws IOException {
+        return readU16BE(readData(getCEOffset(), 0x20), 2);
+    }
+
+    public synchronized int getCESize() throws IOException {
+        long offset = getCEOffset();
+        byte[] header = readData(offset, 0x20);
+        long size = readU32BE(header, CB_SIZE_FIELD);
+        if (size < 0x30 || size > MAX_BOOTLOADER_SIZE * 4L || size > Integer.MAX_VALUE) {
+            throw new IOException(String.format("Tamaño CE inválido: 0x%X", size));
+        }
+        validateBootloaderRange(offset, align16((int) size), "CE");
+        return (int) size;
+    }
+
+    /** Tamaño almacenado de CE, incluyendo el padding de alineación a 16 bytes. */
+    public synchronized int getCEStoredSize() throws IOException {
+        return align16(getCESize());
+    }
+
+    public synchronized byte[] extractCE() throws IOException {
+        return extract(getCEOffset(), getCEStoredSize());
+    }
+
+    /** El KeyVault retail ocupa 0x4000 bytes y su offset está en NAND+0x6C. */
+    public synchronized long getKeyVaultOffset() throws IOException {
+        byte[] header = readData(0, NAND_HEADER_SIZE);
+        long offset = readU32BE(header, NAND_KEYVAULT_OFFSET_FIELD);
+        validateBootloaderRange(offset, KEYVAULT_SIZE, "KeyVault");
+        if ((offset & 0x0F) != 0) {
+            throw new IOException(String.format("Offset KeyVault no alineado: 0x%X", offset));
+        }
+        return offset;
+    }
+
+    public synchronized byte[] extractKeyVault() throws IOException {
+        return extract(getKeyVaultOffset(), KEYVAULT_SIZE);
+    }
+
+    private static int align16(int value) throws IOException {
+        if (value < 0 || value > Integer.MAX_VALUE - 15) {
+            throw new IOException("Tamaño de bootloader fuera de rango");
+        }
+        return (value + 15) & ~15;
+    }
+
     private void validateBootloaderRange(long offset, int length, String name) throws IOException {
         if (offset < 0 || offset > logicalSize || length < 0 || length > logicalSize - offset) {
             throw new IOException(String.format("Rango %s fuera del espacio lógico NAND: offset=0x%X length=0x%X", name, offset, length));
@@ -248,8 +369,13 @@ public final class XenonNandParser {
     }
 
     private static void validateCBMagic(byte[] header, String name) throws IOException {
-        if (header.length < CB_HEADER_SIZE || header[0] != 0x43 || header[1] != 0x42) {
-            throw new IOException("Magic CB inválido para " + name);
+        validateMagic(header, 'C', 'B', name);
+    }
+
+    private static void validateMagic(byte[] header, char first, char second, String name) throws IOException {
+        if (header == null || header.length < CB_HEADER_SIZE
+                || (header[0] & 0xFF) != first || (header[1] & 0xFF) != second) {
+            throw new IOException("Magic inválido para " + name);
         }
     }
 

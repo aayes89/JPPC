@@ -45,15 +45,18 @@ public final class XenonBootImage {
         CB_A,
         CB_B,
         CD,
+        CE,
         CF,
         HV,
-        KERNEL
+        KERNEL,
+        KEYVAULT
     }
 
     public enum State {
         EXTRACTED,
         DECRYPTED,
         INTEGRITY_VERIFIED,
+        DECOMPRESSED,
         SIGNATURE_VERIFIED,
         READY
     }
@@ -63,6 +66,7 @@ public final class XenonBootImage {
     private final byte[] originalData;
 
     private byte[] decryptedData;
+    private byte[] expandedData;
 
     private int version;
     private int declaredSize;
@@ -89,6 +93,7 @@ public final class XenonBootImage {
         this.originalData = data.clone();
 
         this.decryptedData = null;
+        this.expandedData = null;
 
         this.version = -1;
         this.declaredSize = data.length;
@@ -196,6 +201,26 @@ public final class XenonBootImage {
         return decryptedData.clone();
     }
 
+    public synchronized boolean isExpanded() {
+        return expandedData != null;
+    }
+
+    public synchronized byte[] getExpandedData() {
+        return expandedData == null ? null : expandedData.clone();
+    }
+
+    /** Conserva la imagen descomprimida sin sustituir el contenedor CE original. */
+    public synchronized void setExpandedData(byte[] data) throws IOException {
+        if (decryptedData == null || state != State.INTEGRITY_VERIFIED) {
+            throw new IOException("CE debe estar descifrado y verificado antes de expandirse");
+        }
+        if (data == null || data.length == 0) {
+            throw new IOException("Imagen CE descomprimida vacía");
+        }
+        if (expandedData != null) Arrays.fill(expandedData, (byte) 0);
+        expandedData = data.clone();
+    }
+
     /**
      * Establece el resultado de un descifrado.
      */
@@ -230,6 +255,9 @@ public final class XenonBootImage {
 
         if (next == State.DECRYPTED && !isDecrypted()) {
             throw new IOException("No existen datos descifrados");
+        }
+        if (next == State.DECOMPRESSED && !isExpanded()) {
+            throw new IOException("No existe imagen descomprimida");
         }
 
         state = next;
