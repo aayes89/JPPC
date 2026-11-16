@@ -54,6 +54,7 @@ public final class XenonBootStrapper {
     private XenonBootImage keyVault;
     private XenonBaseImageInspector.Result baseImageInfo;
     private XenonBootState bootState;
+    private XenonKernelPatchLoader.Result patchedKernel;
 
     private boolean cbAExtracted;
     private boolean cbADecrypted;
@@ -86,6 +87,7 @@ public final class XenonBootStrapper {
         this.keyVault = null;
         this.baseImageInfo = null;
         this.bootState = new XenonBootState();
+        this.patchedKernel = null;
 
         this.cbAExtracted = false;
         this.cbADecrypted = false;
@@ -440,6 +442,52 @@ public final class XenonBootStrapper {
         prepareCD(credentials);
         decryptCE();
         return decompressCE();
+    }
+
+    /** Reconstruye el kernel efectivo aplicando CF/CG sobre la imagen CE. */
+    public synchronized XenonKernelPatchLoader.Result prepareKernel(
+            XenonBootCredentials credentials, XenonFuses fuses) throws IOException {
+        if (credentials == null || fuses == null) {
+            throw new IOException("Credenciales y fusesets son obligatorios para preparar el kernel");
+        }
+        byte[] oneBlKey = credentials.getOneBlKey();
+        try {
+            XenonBootLockdownValidator.Result lockdown
+                    = XenonBootLockdownValidator.validate(nand, oneBlKey, fuses);
+            if (!lockdown.matches) {
+                throw new IOException(String.format(
+                        "CF LDV incompatible: NAND=%d eFuse07=%d",
+                        lockdown.cfLdv, lockdown.fuseLdv));
+            }
+            System.out.printf("[BOOTSTRAPPER] CF LDV verificado: %d == eFuse07%n",
+                    lockdown.cfLdv);
+        } finally {
+            java.util.Arrays.fill(oneBlKey, (byte) 0);
+        }
+        return prepareKernel(credentials);
+    }
+
+    public synchronized XenonKernelPatchLoader.Result prepareKernel(
+            XenonBootCredentials credentials) throws IOException {
+        if (credentials == null) {
+            throw new IOException("Credenciales de arranque no especificadas");
+        }
+        if (patchedKernel != null) return patchedKernel;
+
+        XenonBootImage baseCe = prepareCE(credentials);
+        byte[] baseImage = baseCe.getExpandedData();
+        byte[] oneBlKey = credentials.getOneBlKey();
+        try {
+            patchedKernel = XenonKernelPatchLoader.apply(nand, oneBlKey, baseImage);
+            return patchedKernel;
+        } finally {
+            java.util.Arrays.fill(baseImage, (byte) 0);
+            java.util.Arrays.fill(oneBlKey, (byte) 0);
+        }
+    }
+
+    public synchronized XenonKernelPatchLoader.Result getPatchedKernel() {
+        return patchedKernel;
     }
 
     /** Extrae el KeyVault según el offset indicado en la cabecera NAND. */

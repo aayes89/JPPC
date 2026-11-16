@@ -94,6 +94,12 @@ public class Bus {
         devices.add(new DeviceMapping(device, startAddress, endAddress));
     }
 
+    /** Desconecta todas las ventanas asociadas a un dispositivo. */
+    public void detachDevice(Device device) {
+        if (device == null) return;
+        devices.removeIf(mapping -> mapping.device == device);
+    }
+
     /** Cambia la ventana de un dispositivo ya conectado (p. ej. el framebuffer cuando la GPU cambia su superficie). */
     public void moveDevice(Device device, long startAddress, long endAddress) {
         for (DeviceMapping m : devices) {
@@ -115,22 +121,32 @@ public class Bus {
      * ceros, aparentando una instrucción PPC ilegal.
      */
     private static long canon(long address) {
-        // En modo real PPC64, CPU.translateRealAddress() suma HRMOR a la EA
-        // de 32 bits. El alias FFFF8000 puede llegar al bus como
-        // 80000000FFFF8000 cuando HRMOR=8000000000000000. El mirror del
-        // kernel está registrado en la ventana EA de 32 bits; retirar HRMOR
-        // aquí conserva la resolución por DeviceMapping sin alterar RAM.
+        // Alias especial usado por el mirror de kernel cuando HRMOR=0x8000...
         if ((address & 0xFFFFFFFF00000000L) == 0x8000000000000000L) {
             long low = address & 0xFFFFFFFFL;
             if (Long.compareUnsigned(low, 0xFFFF8000L) >= 0) {
                 return low;
             }
         }
+
+        // La ventana SoC 0x80000200.xxxxxxxx es MMIO: conservarla íntegra
+        // para que DeviceMapping resuelva INIT, POST, NAND y registros SoC.
+        if ((address >>> 32) == 0x80000200L) {
+            return address;
+        }
+
+        // En Xenon, los 32 bits superiores de las direcciones reales pueden
+        // transportar atributos de seguridad/HRMOR. El backing store del
+        // emulador representa la RAM física por los 32 bits inferiores.
+        if ((address >>> 32) != 0) {
+            address &= 0xFFFFFFFFL;
+        }
+
+        // Mirror físico de RAM de 512 MiB: 0x80000000 + X -> X.
         if (Long.compareUnsigned(address, 0x80000000L) >= 0
                 && Long.compareUnsigned(address, 0xA0000000L) < 0) {
             return address & 0x1FFFFFFFL;
         }
-        // Mantener FFFF8000-FFFFFFFF intacto para el DeviceMapping del mirror.
         return address;
     }
 

@@ -11,6 +11,20 @@ final class XexLzx {
     private int bits(int n){if(n==0)return 0;ensure(n);int v=(int)((buf>>>(cnt-n))&((1L<<n)-1));cnt-=n;buf&=(1L<<cnt)-1;return v;}
     private int sym(Huff h)throws IOException{int code=0;for(int l=1;l<=16;l++){code=(code<<1)|bits(1);int c=h.count[l];if(c!=0&&code-h.first[l]<c&&code>=h.first[l])return h.sorted[h.offset[l]+code-h.first[l]];}throw new IOException("Código Huffman LZX inválido");}
     private void readLens(byte[] lens,int from,int to)throws IOException{byte[] pl=new byte[20];for(int i=0;i<20;i++)pl[i]=(byte)bits(4);pretree.build(pl,0,20);int x=from;while(x<to){int z=sym(pretree);if(z==17){int y=bits(4)+4;while(y-->0&&x<to)lens[x++]=0;}else if(z==18){int y=bits(5)+20;while(y-->0&&x<to)lens[x++]=0;}else if(z==19){int y=bits(1)+4;z=sym(pretree);z=(lens[x]&255)-z;if(z<0)z+=17;while(y-->0&&x<to)lens[x++]=(byte)z;}else{z=(lens[x]&255)-z;if(z<0)z+=17;lens[x++]=(byte)z;}}}
+    /**
+     * Descompresión LZX delta: la ventana se precarga con los datos de
+     * referencia (imagen antigua) y la posición inicial queda justo después
+     * de ellos, de modo que las coincidencias pueden apuntar al diccionario.
+     */
+    byte[] decompress(byte[] stream,int outLen,byte[] dictionary)throws IOException{
+        if(dictionary!=null&&dictionary.length>0){
+            int keep=Math.min(dictionary.length,window.length);
+            int from=dictionary.length-keep;
+            for(int i=0;i<keep;i++)window[(from+i)&windowMask]=dictionary[from+i];
+            windowPos=dictionary.length;
+        }
+        return decompress(stream,outLen);
+    }
     byte[] decompress(byte[] stream,int outLen)throws IOException{in=stream;inPos=0;buf=0;cnt=0;byte[] out=new byte[outLen];int outPos=0;while(outPos<outLen){int frame=Math.min(FRAME_SIZE,outLen-outPos);decodeFrame(out,outPos,frame);outPos+=frame;}return out;}
     private void decodeFrame(byte[] out,int outPos,int frameLen)throws IOException{if(!headerRead){int hi=0,lo=0;if(bits(1)!=0){hi=bits(16);lo=bits(16);}intelFileSize=(hi<<16)|lo;headerRead=true;}int todo=frameLen,frameStart=windowPos;while(todo>0){if(blockRemaining==0){if(blockType==BLOCK_UNCOMPRESSED&&blockLengthOdd){inPos++;blockLengthOdd=false;}blockType=bits(3);int hi=bits(16),lo=bits(8);blockRemaining=(hi<<8)|lo;blockLengthOdd=(blockRemaining&1)!=0;switch(blockType){case BLOCK_ALIGNED:for(int i=0;i<8;i++)alignedLens[i]=(byte)bits(3);alignedTree.build(alignedLens,0,8);case BLOCK_VERBATIM:readLens(mainLens,0,256);readLens(mainLens,256,mainElements);mainTree.build(mainLens,0,mainElements);if(mainLens[0xE8]!=0)intelStarted=true;readLens(lengthLens,0,249);lengthTree.build(lengthLens,0,249);break;case BLOCK_UNCOMPRESSED:intelStarted=true;cnt=0;buf=0;r0=leInt();r1=leInt();r2=leInt();break;default:throw new IOException("Tipo de bloque LZX inválido: "+blockType);}}
  int run=Math.min(blockRemaining,todo);blockRemaining-=run;todo-=run;if(blockType==BLOCK_UNCOMPRESSED){for(int i=0;i<run;i++){window[windowPos&windowMask]=(byte)rawByte();windowPos++;}}else{int left=run;while(left>0){int main=sym(mainTree);if(main<256){window[windowPos&windowMask]=(byte)main;windowPos++;left--;continue;}main-=256;int matchLen=main&7;if(matchLen==7)matchLen+=sym(lengthTree);matchLen+=2;int slot=main>>3,offset;if(slot>2){int extra=EXTRA_BITS[slot];if(blockType==BLOCK_ALIGNED&&extra>=3){int verb=extra>3?bits(extra-3)<<3:0;offset=POSITION_BASE[slot]-2+verb+sym(alignedTree);}else offset=POSITION_BASE[slot]-2+(extra>0?bits(extra):0);r2=r1;r1=r0;r0=offset;}else if(slot==0)offset=r0;else if(slot==1){offset=r1;r1=r0;r0=offset;}else{offset=r2;r2=r0;r0=offset;}if(offset<=0||offset>window.length)throw new IOException("Desplazamiento LZX inválido: "+offset);int n=matchLen;if(n>left){int over=n-left;if(over>blockRemaining)throw new IOException("Coincidencia LZX excede el bloque");blockRemaining-=over;todo-=over;if(todo<0)throw new IOException("Coincidencia LZX excede la trama");}for(int i=0;i<n;i++){window[windowPos&windowMask]=window[(windowPos-offset)&windowMask];windowPos++;}left-=n;}}}

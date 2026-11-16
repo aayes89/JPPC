@@ -71,6 +71,10 @@ public class PPCSimulator {
     private boolean fbAttached = false;
     private boolean fbBaseUserSet = false;
     private boolean bootRomMode = false;
+    private BootRom bootRom;
+    private BootSram bootConfigRing;
+    private BootSram bootSram;
+    private XenonNandWindow bootNandWindow;
     private boolean elfMode = false;
     private boolean xell = false;
     public static final long FB_BASE_ELF = 0x1E000000L; // superficie Xenos usada por XeLL Xenon (1280x720)
@@ -95,6 +99,12 @@ public class PPCSimulator {
         bus.attachDevice(sfcx, XenonSfcx.BASE, XenonSfcx.BASE + XenonSfcx.SIZE - 1);
         bus.attachDevice(sata, XenonSata.BASE, XenonSata.BASE + XenonSata.SIZE - 1);
         bus.attachDevice(fuses, XenonFuses.BASE, XenonFuses.BASE + XenonFuses.SIZE - 1);
+        Device fuseSocView = fuses.socView();
+        bus.attachDevice(fuseSocView, XenonFuses.SOC_BASE,
+                XenonFuses.SOC_BASE + XenonFuses.SOC_SIZE - 1);
+        // CD accede al mismo Fusebox mediante su alias físico 0x10020000.
+        bus.attachDevice(fuseSocView, XenonFuses.PHYSICAL_SOC_BASE,
+                XenonFuses.PHYSICAL_SOC_BASE + XenonFuses.SOC_SIZE - 1);
         bus.attachDevice(crypto, XenonCrypto.BASE, XenonCrypto.BASE + XenonCrypto.SIZE - 1);
 
         bootController.attachTo(bus);
@@ -108,6 +118,11 @@ public class PPCSimulator {
      * almacena lo que se le da y lo que el programa escribe.
      */
     public void addSocRegister(long address, long value) {
+        if (bootController.ownsAddress(address, 8)) {
+            bootController.writeLong(address, value);
+            System.out.printf("[soc-reg] override SoC 0x%016X = 0x%016X%n", address, value);
+            return;
+        }
         final byte[] cell = new byte[8];
         for (int i = 0; i < 8; i++) {
             cell[i] = (byte) (value >>> (56 - 8 * i));
@@ -291,14 +306,21 @@ public class PPCSimulator {
             byte[] mapped = Arrays.copyOf(image, 0x100 + declared);
             final long romBase = 0x8000020000000000L;
             BootRom rom = new BootRom(mapped);
+            bootRom = rom;
             bootRomMode = true;
             // El config-ring de Xenon ocupa una ventana de 4 KiB en el mapa de boot.
             // Debe tener prioridad sobre el contenido ROM: el 1BL lo limpia y lo consulta.
             BootSram configRing = new BootSram(0x1000);
+            bootConfigRing = configRing;
             bus.attachDevice(configRing, 0x200L, 0x11FFL);
             bus.attachDevice(configRing, romBase + 0x200L, romBase + 0x11FFL);
             // SRAM interna de 64 KiB usada como stack y workspace antes de DDR.
             BootSram sram = new BootSram(0x10000);
+            bootSram = sram;
+            // El 1BL copia CB_A a la SRAM física y salta a 0x02000000 + EntryPoint.
+            // La misma SRAM debe ser visible por la ventana de ejecución usada
+            // tras la transición de modo real, además de su alias SoC de 64 bits.
+            bus.attachDevice(sram, 0x02000000L, 0x0200FFFFL);
             bus.attachDevice(sram, romBase + 0x10000L, romBase + 0x1FFFFL);
             bus.attachDevice(rom, 0, mapped.length - 1); // alias de baja dirección
             bus.attachDevice(rom, 0x01000000L, 0x01000000L + mapped.length - 1); // ventana de ejecución ROM
@@ -306,7 +328,14 @@ public class PPCSimulator {
             // El 1BL lee la cabecera y el CB por la ventana lógica de la NAND (0x80000200C8000000).
             // Los registros del framebuffer del emulador no deben ocupar esa dirección.
             bus.moveDevice(frameBuffer.getRegisters(), 0xF0000000L, 0xF000000FL);
-            bus.attachDevice(new XenonNandWindow(sfcx), XenonNandWindow.BASE, XenonNandWindow.BASE + XenonNandWindow.SIZE - 1);
+            XenonNandWindow nandWindow = new XenonNandWindow(sfcx);
+            bootNandWindow = nandWindow;
+            bus.attachDevice(nandWindow, XenonNandWindow.BASE,
+                    XenonNandWindow.BASE + XenonNandWindow.SIZE - 1);
+            // CB/CD usan además el alias físico 0x18000000 + NAND logical offset.
+            // Sin este alias, la lectura de CE en 0x18018C40 cae en RAM vacía.
+            bus.attachDevice(nandWindow, XenonNandWindow.PHYSICAL_ALIAS_BASE,
+                    XenonNandWindow.PHYSICAL_ALIAS_BASE + XenonNandWindow.SIZE - 1);
             cpu.setMsr(cpu.getMsr() | 0x8000000000000000L);
             cpu.setPc(romBase + 0x100);
             System.out.printf("[1BL] ROM mapeada: base=0x%016x size=0x%x PC=0x%016x%n",
@@ -599,6 +628,28 @@ public class PPCSimulator {
 
     public void setTrace(boolean enabled) {
         cpu.setTrace(enabled);
+    }
+
+    /**
+     * Retira los aliases de ejecución del 1BL (ROM, config ring y SRAM),
+     * conservando la ventana NAND para las etapas posteriores del sistema.
+     * No modifica CPU, HRMOR, MSR, RAM ni registros del controlador.
+     */
+    public void detachBootExecutionAliases() {
+        bus.detachDevice(bootRom);
+        bus.detachDevice(bootConfigRing);
+        bus.detachDevice(bootSram);
+        bootRom = null;
+        bootConfigRing = null;
+        bootSram = null;
+        bootRomMode = false;
+    }
+
+    /** Elimina todos los aliases de firmware, incluida la ventana NAND. */
+    public void detachBootFirmwareMappings() {
+        detachBootExecutionAliases();
+        bus.detachDevice(bootNandWindow);
+        bootNandWindow = null;
     }
 
     public void reset() {

@@ -231,6 +231,20 @@ public class CPU {
         return out;
     }
 
+    /** Última dirección registrada por el trazador de ejecución, o -1. */
+    public synchronized long getLastExecutedPc() {
+        if (execTraceSize == 0) return -1L;
+        int at = (execTraceWrite - 1 + EXEC_TRACE_CAPACITY) % EXEC_TRACE_CAPACITY;
+        return execTracePc[at];
+    }
+
+    /** Opcode asociado a getLastExecutedPc(). */
+    public synchronized int getLastExecutedOpcode() {
+        if (execTraceSize == 0) return 0;
+        int at = (execTraceWrite - 1 + EXEC_TRACE_CAPACITY) % EXEC_TRACE_CAPACITY;
+        return execTraceOpcode[at];
+    }
+
     private synchronized void recordExecution(long address, int opcode) {
         execTracePc[execTraceWrite] = address;
         execTraceOpcode[execTraceWrite] = opcode;
@@ -258,6 +272,11 @@ public class CPU {
 
     public long getInstructionCount() {
         return instructionCount;
+    }
+
+    /** Última instrucción ilegal capturada por el decodificador. */
+    public long getLastIllegalInsn() {
+        return lastIllegalInsn;
     }
 
     public void setHaltOnSelfBranch(boolean v) {
@@ -717,13 +736,6 @@ public class CPU {
             System.out.printf(
                     "[BC-TRACE] PC=%016X BO=%02d BI=%02d CR=%08X CRBIT=%d CTR=%016X ctrOk=%b condOk=%b TARGET=%016X%n",
                     pc, bo, bi, cr, crBit(bi), ctr, ctrOk, condOk, target
-            );
-        }
-        if (insn == 0x43200000 && pc == 0x010044D4L) {
-            System.out.printf(
-                    "[1BL-LOOP] PC=%016X CTR=%016X TAKEN=%b NEXT=%016X%n",
-                    pc, ctr, ctrOk && condOk,
-                    ctrOk && condOk ? target : addressWidth(pc + 4)
             );
         }
         if (ctrOk && condOk) {
@@ -3255,10 +3267,23 @@ public class CPU {
         return sprOther[spr];
     }
 
+    /**
+     * Ventana de E/S que xboxkrnl usa para el southbridge (UART 0x1000, SMC
+     * 0x1080, SATA 0x1300, fuses, SFCX...). El HV la mapea a 0xEA000000 del bus;
+     * no es RAM, así que no depende de HRMOR.
+     */
+    private static final long KERNEL_IO_VIRT_BASE = 0x7FEA0000L;
+    private static final long KERNEL_IO_SIZE = 0x10000L;
+    private static final long KERNEL_IO_BUS_BASE = 0xEA000000L;
+
     private long translateRealAddress(long effectiveAddress) {
         if (!sf() && effectiveAddress >= 0
                 && effectiveAddress <= 0xFFFFFFFFL) {
 
+            if (effectiveAddress >= KERNEL_IO_VIRT_BASE
+                    && effectiveAddress < KERNEL_IO_VIRT_BASE + KERNEL_IO_SIZE) {
+                return KERNEL_IO_BUS_BASE | (effectiveAddress & (KERNEL_IO_SIZE - 1));
+            }
             return getHRMOR() + effectiveAddress;
         }
 

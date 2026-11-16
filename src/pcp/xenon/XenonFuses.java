@@ -64,6 +64,14 @@ public final class XenonFuses implements Device {
     public XenonFuses() {
     }
 
+    /** Devuelve el valor de un fuseset ya cargado. */
+    public synchronized long getFuseSet(int index) throws IOException {
+        if (index < 0 || index >= FUSESET_COUNT) {
+            throw new IOException("Fuseset fuera de rango: " + index);
+        }
+        return lines[index];
+    }
+
     @Override
     public boolean containsAddress(long address) {
         return address >= 0 && address < SIZE;
@@ -198,6 +206,8 @@ public final class XenonFuses implements Device {
      * +0: palabra alta. +4: palabra baja.
      */
     public static final long SOC_BASE = 0x8000020000020000L;
+    /** Alias físico de los fusesets utilizado por CD durante la inicialización. */
+    public static final long PHYSICAL_SOC_BASE = 0x10020000L;
     public static final int SOC_STRIDE = 0x200;
     public static final long SOC_SIZE = (long) FUSESET_COUNT * SOC_STRIDE;
 

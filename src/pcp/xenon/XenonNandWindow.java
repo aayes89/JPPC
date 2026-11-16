@@ -45,6 +45,8 @@ import pcp.gpu.NandImage;
 public final class XenonNandWindow implements Device {
 
     public static final long BASE = 0x80000200C8000000L;
+    /** Alias físico de lectura usado por CD/CB al acceder al NAND offset directamente. */
+    public static final long PHYSICAL_ALIAS_BASE = 0x18000000L;
     public static final int SIZE = NandImage.DATA_SIZE;
 
     private final XenonSfcx sfcx;

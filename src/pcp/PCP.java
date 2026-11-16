@@ -385,8 +385,6 @@ public class PCP {
             XenonNandParser retailNand = XenonNandParser.load(Paths.get(nandPath));
             XenonFlashFs flashFs = XenonFlashFs.open(retailNand);
             flashFs.dumpDirectory();
-
-            System.exit(0);
             runtimeKernel.attachFlashFileSystem(flashFs);
             Path imports = Paths.get("./nandDump/extracted/manifests/imports.csv");
             int xamImports = runtimeKernel.installImports(imports, "xam.xex");

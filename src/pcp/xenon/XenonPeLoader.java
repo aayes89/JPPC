@@ -252,6 +252,39 @@ public final class XenonPeLoader {
 
     public LoadedImage load(byte[] file, Memory memory)
             throws IOException {
+        return load(file, memory, -1L);
+    }
+
+    /**
+     * Carga la misma imagen PE en una dirección física alternativa cuando el
+     * contexto Xenon aplica HRMOR. El LoadedImage conserva el ImageBase virtual
+     * declarado en el PE; sólo cambia el destino del backing store.
+     */
+    public LoadedImage load(byte[] file, Memory memory, long physicalLoadAddress)
+            throws IOException {
+        return load(file, memory, physicalLoadAddress, false);
+    }
+
+    /**
+     * Carga una imagen PE que ya está en layout de memoria (RVA == offset),
+     * como el xboxkrnl.exe contenido en la imagen HV+kernel reconstruida a
+     * partir de CE/CF/CG. Los raw pointers de su tabla de secciones no
+     * describen su posición dentro del buffer, por lo que no se usan: la imagen
+     * se copia tal cual y no se aplica ninguna corrección de raw pointer.
+     */
+    public LoadedImage loadMemoryImage(byte[] image, Memory memory)
+            throws IOException {
+        return load(image, memory, -1L, true);
+    }
+
+    public LoadedImage loadMemoryImage(byte[] image, Memory memory,
+            long physicalLoadAddress) throws IOException {
+        return load(image, memory, physicalLoadAddress, true);
+    }
+
+    private LoadedImage load(byte[] file, Memory memory,
+            long physicalLoadAddress, boolean memoryLayout)
+            throws IOException {
 
         if (file == null || memory == null) {
             throw new IllegalArgumentException(
@@ -426,10 +459,20 @@ public final class XenonPeLoader {
             ));
         }
 
+        if (memoryLayout) {
+            if (file.length < sizeOfImage) {
+                throw new IOException(String.format(
+                        "Imagen de memoria truncada: 0x%X < SizeOfImage 0x%X",
+                        file.length, sizeOfImage));
+            }
+            System.arraycopy(file, 0, mapped, 0, (int) sizeOfImage);
+        }
+
         // Algunas imágenes XEX extraídas conservan un raw pointer inválido
         // únicamente en .text. El payload PPC de esa sección está en +0x3D200;
         // .rdata/.pdata/.data y demás secciones sí usan su raw pointer normal.
         for (Section section : sections) {
+            if (memoryLayout) break;
             if (section.rawSize <= 0) continue;
             long source = section.rawOffset;
             if ((section.characteristics & 0x20000000L) != 0
@@ -448,7 +491,7 @@ public final class XenonPeLoader {
          * Las imágenes se cargan en su ImageBase preferido.
          * No se aplica delta de relocations en esta etapa.
          */
-        memory.writeBlock(imageBase, mapped);
+        memory.writeBlock(physicalLoadAddress < 0 ? imageBase : physicalLoadAddress, mapped);
 
         LoadedImage result = new LoadedImage(
                 imageBase,

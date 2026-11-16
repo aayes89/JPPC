@@ -56,6 +56,12 @@ public final class XenonBootController {
     // No es un command/config ring: es exclusivamente diagnóstico.
     public static final long POST_BASE = XENON_BASE + 0x61008L;
     public static final long POST_END = XENON_BASE + 0x61017L;
+    public static final long SOC_WINDOW_BASE = XENON_BASE + 0x60000L;
+    public static final long SOC_WINDOW_END = XENON_BASE + 0x61FFFL;
+    public static final long BOOT_STATUS_REGISTER = XENON_BASE + 0x61000L;
+    public static final long SOC_ID_REGISTER = XENON_BASE + 0xE1040000L;
+    public static final long BOOT_STATUS_SEQUENCE_READY = 0x2000000000000000L;
+    public static final long SOC_ID_XENON_VALUE = 0x0000002000000000L;
     public static final long POST_STATUS = XENON_BASE + 0x61008L;
     public static final long POST_OUTPUT = XENON_BASE + 0x61010L;
 
@@ -78,16 +84,18 @@ public final class XenonBootController {
     private final DeviceWindow initWindow = new DeviceWindow(INIT_BASE, INIT_END);
 
     private final DeviceWindow postWindow = new DeviceWindow(POST_BASE, POST_END);
+    private final DeviceWindow socWindow = new DeviceWindow(SOC_WINDOW_BASE, SOC_WINDOW_END);
+    private final DeviceWindow socIdWindow = new DeviceWindow(SOC_ID_REGISTER, SOC_ID_REGISTER + 7L);
 
     private boolean trace;
 
     /**
      * Modelo OPCIONAL del secuenciador (apagado por defecto): el 1BL espera en
-     * 0x34D0 a que (SEQUENCE_STATUS >> 32) & 0xF valga 0xE y se da por vencido
-     * tras 64 lecturas de INIT_STATUS, lo que indica que el chip avanza ese
-     * estado por sí solo. Con el modelo activo, cada lectura de SEQUENCE_STATUS
-     * sube un estado hasta 0xE. Es una inferencia del código del 1BL, NO un
-     * comportamiento de hardware verificado.
+     * 0x34D0 a que SEQUENCE_STATUS alcance 0xE. Con el modelo activo, cada
+     * lectura avanza un estado. También se activa el bit 61 de SoC+0x61000,
+     * consultado por CB_A durante su inicialización. Ambos comportamientos
+     * son un perfil experimental inferido del código de arranque, no una
+     * descripción verificada de todos los stepping Xenon.
      */
     private boolean sequenceModel;
     private int sequenceState;
@@ -95,6 +103,15 @@ public final class XenonBootController {
     public synchronized void setSequenceModel(boolean enabled) {
         sequenceModel = enabled;
         sequenceState = 0;
+        if (enabled) {
+            // Perfil Xenon experimental: CB_A consulta el bit 61 de +0x61000
+            // y CB_B valida el identificador leído desde +0xE1040000.
+            writeLong(BOOT_STATUS_REGISTER, BOOT_STATUS_SEQUENCE_READY);
+            writeLong(SOC_ID_REGISTER, SOC_ID_XENON_VALUE);
+        } else {
+            clearRegister64(BOOT_STATUS_REGISTER);
+            clearRegister64(SOC_ID_REGISTER);
+        }
     }
 
     public XenonBootController() {
@@ -110,6 +127,8 @@ public final class XenonBootController {
 
         bus.attachDevice(initWindow, INIT_BASE, INIT_END);
         bus.attachDevice(postWindow, POST_BASE, POST_END);
+        bus.attachDevice(socWindow, SOC_WINDOW_BASE, SOC_WINDOW_END);
+        bus.attachDevice(socIdWindow, SOC_ID_REGISTER, SOC_ID_REGISTER + 7L);
 
         System.out.println("[XENON-BOOT] Controlador MMIO conectado");
         System.out.printf("[XENON-BOOT] INIT 0x%016X - 0x%016X%n", INIT_BASE, INIT_END);
@@ -192,6 +211,30 @@ public final class XenonBootController {
         registers.clear();
         sequenceState = 0;
         postTracker.reset();
+        if (sequenceModel) {
+            // reset() limpia el estado transitorio, no el perfil de hardware.
+            writeLong(BOOT_STATUS_REGISTER, BOOT_STATUS_SEQUENCE_READY);
+            writeLong(SOC_ID_REGISTER, SOC_ID_XENON_VALUE);
+        }
+    }
+
+    /** Indica si una dirección pertenece a una ventana gestionada por este controlador. */
+    public synchronized boolean ownsAddress(long address, int length) {
+        if (length <= 0) return false;
+        long end = address + length - 1L;
+        return withinUnsigned(address, end, INIT_BASE, INIT_END)
+                || withinUnsigned(address, end, POST_BASE, POST_END)
+                || withinUnsigned(address, end, SOC_WINDOW_BASE, SOC_WINDOW_END)
+                || withinUnsigned(address, end, SOC_ID_REGISTER, SOC_ID_REGISTER + 7L);
+    }
+
+    private static boolean withinUnsigned(long start, long end, long rangeStart, long rangeEnd) {
+        return Long.compareUnsigned(start, rangeStart) >= 0
+                && Long.compareUnsigned(end, rangeEnd) <= 0;
+    }
+
+    private void clearRegister64(long address) {
+        for (int i = 0; i < 8; i++) registers.remove(address + i);
     }
 
     private byte readByte(long address) {
