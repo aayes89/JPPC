@@ -23,6 +23,7 @@ public final class XenonFlashFs {
     private static final int END_OF_CHAIN = 0x1FF0;
 
     public static final class Entry {
+
         public final String name;
         public final int block;
         public final long size;
@@ -42,6 +43,7 @@ public final class XenonFlashFs {
     }
 
     public static final class RootInfo {
+
         public final int offset;
         public final int entryCount;
         public final int validChains;
@@ -50,7 +52,7 @@ public final class XenonFlashFs {
         public final int score;
 
         RootInfo(int offset, int entryCount, int validChains,
-                 int exactChains, int xex2Files, int score) {
+                int exactChains, int xex2Files, int score) {
             this.offset = offset;
             this.entryCount = entryCount;
             this.validChains = validChains;
@@ -73,7 +75,7 @@ public final class XenonFlashFs {
     private final RootInfo rootInfo;
 
     private XenonFlashFs(byte[] logical, int rootOffset, int[] fat,
-                         List<Entry> entries, RootInfo rootInfo) {
+            List<Entry> entries, RootInfo rootInfo) {
         this.logical = logical;
         this.rootOffset = rootOffset;
         this.fat = fat;
@@ -81,7 +83,9 @@ public final class XenonFlashFs {
         this.rootInfo = rootInfo;
     }
 
-    /** Selecciona la generación con mayor evidencia de ejecutables XEX2 válidos. */
+    /**
+     * Selecciona la generación con mayor evidencia de ejecutables XEX2 válidos.
+     */
     public static XenonFlashFs open(XenonNandParser nand) throws IOException {
         byte[] logical = nand.readData(0, nand.getLogicalSize());
         XenonFlashFs best = null;
@@ -109,7 +113,9 @@ public final class XenonFlashFs {
         return best;
     }
 
-    /** Permite fijar una raíz concreta para comparar generaciones de NAND. */
+    /**
+     * Permite fijar una raíz concreta para comparar generaciones de NAND.
+     */
     public static XenonFlashFs openAt(XenonNandParser nand, int rootOffset) throws IOException {
         byte[] logical = nand.readData(0, nand.getLogicalSize());
         if (rootOffset < 0 || (rootOffset % BLOCK_SIZE) != 0
@@ -129,7 +135,7 @@ public final class XenonFlashFs {
     }
 
     private static RootInfo scoreRoot(byte[] logical, int root, int[] fat,
-                                       List<Entry> entries) {
+            List<Entry> entries) {
         int validChains = 0;
         int exactChains = 0;
         int xex2Files = 0;
@@ -314,15 +320,21 @@ public final class XenonFlashFs {
         return out;
     }
 
-    /** Lee un rango sin materializar el archivo completo en memoria host. */
+    /**
+     * Lee un rango sin materializar el archivo completo en memoria host.
+     */
     public byte[] read(Entry e, long offset, int length) throws IOException {
-        if (e == null) throw new IOException("Entrada NAND nula");
+        if (e == null) {
+            throw new IOException("Entrada NAND nula");
+        }
         if (offset < 0 || length < 0 || offset > e.size) {
             throw new IOException("Rango de lectura inválido para " + e.name);
         }
         int count = (int) Math.min((long) length, e.size - offset);
         byte[] out = new byte[count];
-        if (count == 0) return out;
+        if (count == 0) {
+            return out;
+        }
 
         List<Integer> blocks = chain(e);
         int copied = 0;
@@ -368,6 +380,74 @@ public final class XenonFlashFs {
             throw new IOException("Lectura incompleta para " + e.name + ": " + pos + "/" + out.length);
         }
         return out;
+    }
+
+    public List<Entry> findKernelCandidates() {
+        List<Entry> result = new ArrayList<>();
+
+        for (Entry e : entries) {
+            String name = e.name.toLowerCase(java.util.Locale.ROOT);
+
+            if (name.contains("xboxkrnl")
+                    || name.contains("kernel")) {
+                result.add(e);
+            }
+        }
+
+        return result;
+    }
+
+    public void dumpDirectory() {
+        System.out.println("========================================");
+        System.out.println(" XENON FLASH FILESYSTEM");
+        System.out.println("========================================");
+
+        System.out.println("Root: " + rootInfo);
+        System.out.println();
+
+        for (Entry e : entries) {
+            System.out.println(e);            
+        }
+
+        System.out.println("========================================");
+        System.out.println("Kernel candidates:");
+
+        for (Entry e : findKernelCandidates()) {
+            System.out.println(e);
+        }
+
+        System.out.println("========================================");
+    }
+
+    private static void dumpXexInfo(String filename, XexFile xex) throws IOException {
+
+        System.out.println("\n========== XEX MODULE ==========");
+        System.out.println("File       : " + filename);
+        System.out.println("Original   : " + xex.originalName());
+        System.out.println("PE Name    : " + xex.originalPeName());
+
+        System.out.printf("Image Base : %08X%n", xex.imageBase());
+        System.out.printf("Load Addr  : %08X%n", xex.loadAddress());
+        System.out.printf("Entry Point: %08X%n", xex.entryPoint());
+
+        System.out.printf("Image Size : %08X%n", xex.imageSize());
+
+        System.out.println("Encryption : " + xex.encryption());
+        System.out.println("Compression: " + xex.compression());
+
+        System.out.println("Import libraries:");
+
+        for (XexFile.ImportLibrary lib : xex.importLibraries()) {
+            System.out.printf(
+                    "  %-24s ID=%08X VERSION=%08X IMPORTS=%d%n",
+                    lib.name,
+                    lib.libraryId,
+                    lib.version,
+                    lib.thunkAddresses.length
+            );
+        }
+
+        System.out.println("================================");
     }
 
     private static int be16(byte[] d, int p) {

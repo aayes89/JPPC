@@ -29,9 +29,10 @@ import java.nio.file.Path;
 /**
  * Coordinador funcional de la cadena de arranque Xenon.
  *
- * Fase implementada: 1. Cargar NAND RAW. 2. Extraer CB_A. 3. Construir
- * XenonBootImage. 4. Descifrar CB_A mediante RC4. 5. Conservar el resultado
- * para su posterior análisis.
+ * Fase implementada: cargar NAND RAW, extraer CB_A según la cabecera NAND,
+ * derivar su clave RC4 mediante HMAC-SHA1 con la clave 1BL y conservar el
+ * resultado para su posterior análisis. Esto no implica validar firma ni
+ * integridad criptográfica.
  *
  * Las fases de CB_B, KeyVault, RSA, HMAC específico de la cadena y
  * transferencia a CPU se incorporarán cuando estén identificados sus formatos y
@@ -86,12 +87,17 @@ public final class XenonBootStrapper {
         System.out.println("[BOOTSTRAPPER] Extrayendo CB_A...");
 
         byte[] data = nand.extractCBA();
-        if (data.length != XenonNandParser.CB_SIZE) {
-            throw new IOException("Tamaño CB_A inesperado: 0x" + Integer.toHexString(data.length));
+        int version = nand.getCBAVersion();
+        int declaredSize = nand.getCBASize();
+        if (data.length != declaredSize) {
+            throw new IOException(String.format(
+                    "Tamaño CB_A inesperado: extraído=0x%X declarado=0x%X",
+                    data.length, declaredSize));
         }
 
         cbA = new XenonBootImage(XenonBootImage.Type.CB_A, data);
-        cbA.setVersion(CB_VERSION_0788);
+        cbA.setVersion(version);
+        cbA.setDeclaredSize(declaredSize);
         cbAExtracted = true;
         System.out.printf("[BOOTSTRAPPER] CB_A EXTRAÍDO: 0x%X bytes%n", data.length);
         return cbA;
@@ -103,8 +109,8 @@ public final class XenonBootStrapper {
      * La clave debe estar en el formato binario exacto esperado por RC4.
      */
     public synchronized XenonBootImage decryptCBA(byte[] oneBLKey) throws IOException {
-        if (oneBLKey == null || oneBLKey.length == 0) {
-            throw new IOException("Clave 1BL RC4 inválida");
+        if (oneBLKey == null || oneBLKey.length != 16) {
+            throw new IOException("La clave 1BL debe tener exactamente 16 bytes");
         }
 
         if (cbADecrypted) {
@@ -115,19 +121,21 @@ public final class XenonBootStrapper {
             extractCBA();
         }
 
-        System.out.println("[BOOTSTRAPPER] Descifrando CB_A...");
+        System.out.println("[BOOTSTRAPPER] Descifrando CB_A (HMAC-SHA1 + RC4)...");
         byte[] encrypted = cbA.getOriginalData();
-        byte[] decrypted = XenonBootCrypto.rc4(oneBLKey, encrypted);
-
-        if (decrypted.length != encrypted.length) {
-            throw new IOException("Longitud CB_A alterada durante descifrado");
+        byte[] decrypted;
+        try {
+            decrypted = XenonBootCrypto.decryptCBA(oneBLKey, encrypted);
+        } catch (IllegalArgumentException ex) {
+            throw new IOException("No se pudo descifrar CB_A: " + ex.getMessage(), ex);
         }
 
         cbA.setDecryptedData(decrypted);
         cbADecrypted = true;
 
-        System.out.println("[BOOTSTRAPPER] CB_A DESCIFRADO");
+        System.out.println("[BOOTSTRAPPER] CB_A procesado; firma e integridad aún no verificadas");
         System.out.printf("[BOOTSTRAPPER] SHA1: %s%n", XenonBootCrypto.toHex(XenonBootCrypto.sha1(decrypted)));
+        java.util.Arrays.fill(decrypted, (byte) 0);
 
         return cbA;
     }
@@ -139,6 +147,19 @@ public final class XenonBootStrapper {
         extractCBA();
         decryptCBA(oneBLKey);
         return cbA;
+    }
+
+    /** Prepara CB_A usando credenciales proporcionadas por el usuario. */
+    public synchronized XenonBootImage prepareCBA(XenonBootCredentials credentials) throws IOException {
+        if (credentials == null) {
+            throw new IOException("Credenciales de arranque no especificadas");
+        }
+        byte[] oneBlKey = credentials.getOneBlKey();
+        try {
+            return prepareCBA(oneBlKey);
+        } finally {
+            java.util.Arrays.fill(oneBlKey, (byte) 0);
+        }
     }
 
     /**

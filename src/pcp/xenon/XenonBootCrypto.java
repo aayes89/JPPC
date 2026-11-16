@@ -101,6 +101,63 @@ public final class XenonBootCrypto {
     }
 
     /**
+     * Descifra CB_A para la familia de cabeceras observada (CB 0x0788).
+     *
+     * La clave RC4 se deriva como los primeros 16 bytes de
+     * HMAC-SHA1(1BL_KEY, header[0x10..0x1F]). El campo 0x10..0x1F se sustituye
+     * por esa clave derivada y el flujo RC4 comienza en 0x20. No se interpreta
+     * esta operación como verificación de firma o integridad de CB_A.
+     */
+    public static byte[] decryptCBA(byte[] oneBlKey, byte[] encrypted) {
+        if (oneBlKey == null || oneBlKey.length != 16) {
+            throw new IllegalArgumentException("La clave 1BL debe tener 16 bytes");
+        }
+        if (encrypted == null || encrypted.length < 0x20) {
+            throw new IllegalArgumentException("CB_A truncado: se requieren al menos 0x20 bytes");
+        }
+        if (encrypted[0] != 0x43 || encrypted[1] != 0x42) {
+            throw new IllegalArgumentException("Magic CB inválido");
+        }
+
+        int declaredSize = readU32BE(encrypted, 0x0C);
+        if (declaredSize < 0x20 || declaredSize != encrypted.length) {
+            throw new IllegalArgumentException(String.format(
+                    "Tamaño CB_A inconsistente: cabecera=0x%X buffer=0x%X",
+                    declaredSize, encrypted.length));
+        }
+        int alignedSize = (declaredSize + 0x0F) & ~0x0F;
+        if (alignedSize != declaredSize) {
+            throw new IllegalArgumentException(String.format(
+                    "CB_A no está alineado a 16 bytes: 0x%X", declaredSize));
+        }
+
+        byte[] salt = Arrays.copyOfRange(encrypted, 0x10, 0x20);
+        byte[] digest = hmacSha1(oneBlKey, salt);
+        byte[] rc4Key = Arrays.copyOf(digest, 16);
+        byte[] output = encrypted.clone();
+        try {
+            System.arraycopy(rc4Key, 0, output, 0x10, rc4Key.length);
+            byte[] ciphertext = Arrays.copyOfRange(output, 0x20, alignedSize);
+            byte[] plaintext = rc4(rc4Key, ciphertext);
+            System.arraycopy(plaintext, 0, output, 0x20, plaintext.length);
+            Arrays.fill(ciphertext, (byte) 0);
+            Arrays.fill(plaintext, (byte) 0);
+            return output;
+        } finally {
+            Arrays.fill(salt, (byte) 0);
+            Arrays.fill(digest, (byte) 0);
+            Arrays.fill(rc4Key, (byte) 0);
+        }
+    }
+
+    private static int readU32BE(byte[] data, int offset) {
+        return ((data[offset] & 0xFF) << 24)
+                | ((data[offset + 1] & 0xFF) << 16)
+                | ((data[offset + 2] & 0xFF) << 8)
+                | (data[offset + 3] & 0xFF);
+    }
+
+    /**
      * Calcula SHA-1.
      *
      * La implementación utiliza MessageDigest de Java.

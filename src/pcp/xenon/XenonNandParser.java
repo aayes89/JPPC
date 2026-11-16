@@ -50,10 +50,15 @@ public final class XenonNandParser {
     public static final int PAGES_PER_BLOCK = 32;
     public static final int BLOCK_SIZE = PAGE_SIZE * PAGES_PER_BLOCK;
 
-    public static final long CB_A_OFFSET = 0x8000L;
-    public static final long CF_OFFSET = 0x70000L;
+    public static final long CB_A_OFFSET = 0x8000L; // Valor habitual; la NAND header es autoritativa.
+    public static final long CF_OFFSET = 0x70000L;  // Valor habitual; la NAND header es autoritativa.
 
-    public static final int CB_SIZE = 0x1800;
+    private static final int NAND_HEADER_SIZE = 0x200;
+    private static final int CB_HEADER_SIZE = 0x20;
+    private static final int NAND_CB_OFFSET_FIELD = 0x08;
+    private static final int NAND_CF_OFFSET_FIELD = 0x0C;
+    private static final int CB_SIZE_FIELD = 0x0C;
+    private static final int MAX_BOOTLOADER_SIZE = 0x100000;
 
     private final byte[] raw;
 
@@ -189,11 +194,74 @@ public final class XenonNandParser {
         return readData(logicalOffset, length);
     }
 
-    /**
-     * Extrae CB_A usando el tamaño conocido de la imagen analizada.
-     */
+    /** Offset lógico de CB_A declarado en la cabecera NAND. */
+    public synchronized long getCBAOffset() throws IOException {
+        byte[] header = readData(0, NAND_HEADER_SIZE);
+        long offset = readU32BE(header, NAND_CB_OFFSET_FIELD);
+        validateBootloaderRange(offset, CB_HEADER_SIZE, "CB_A");
+        return offset;
+    }
+
+    /** Offset lógico de CF declarado en la cabecera NAND. */
+    public synchronized long getCFOffset() throws IOException {
+        byte[] header = readData(0, NAND_HEADER_SIZE);
+        long offset = readU32BE(header, NAND_CF_OFFSET_FIELD);
+        if (offset <= 0 || offset >= logicalSize) {
+            throw new IOException(String.format("Offset CF fuera de NAND: 0x%X", offset));
+        }
+        return offset;
+    }
+
+    /** Versión declarada por la cabecera de CB_A. */
+    public synchronized int getCBAVersion() throws IOException {
+        byte[] header = readData(getCBAOffset(), CB_HEADER_SIZE);
+        validateCBMagic(header, "CB_A");
+        return readU16BE(header, 2);
+    }
+
+    /** Tamaño declarado por la cabecera de CB_A. */
+    public synchronized int getCBASize() throws IOException {
+        long offset = getCBAOffset();
+        byte[] header = readData(offset, CB_HEADER_SIZE);
+        validateCBMagic(header, "CB_A");
+        long size = readU32BE(header, CB_SIZE_FIELD);
+        if (size < CB_HEADER_SIZE || size > MAX_BOOTLOADER_SIZE || size > Integer.MAX_VALUE) {
+            throw new IOException(String.format("Tamaño CB_A inválido: 0x%X", size));
+        }
+        validateBootloaderRange(offset, (int) size, "CB_A");
+        long cfOffset = getCFOffset();
+        if (cfOffset > offset && offset + size > cfOffset) {
+            throw new IOException("CB_A invade el área CF declarada por la NAND");
+        }
+        return (int) size;
+    }
+
+    /** Extrae CB_A utilizando offset y tamaño declarados en la NAND. */
     public synchronized byte[] extractCBA() throws IOException {
-        return extract(CB_A_OFFSET, CB_SIZE);
+        return extract(getCBAOffset(), getCBASize());
+    }
+
+    private void validateBootloaderRange(long offset, int length, String name) throws IOException {
+        if (offset < 0 || offset > logicalSize || length < 0 || length > logicalSize - offset) {
+            throw new IOException(String.format("Rango %s fuera del espacio lógico NAND: offset=0x%X length=0x%X", name, offset, length));
+        }
+    }
+
+    private static void validateCBMagic(byte[] header, String name) throws IOException {
+        if (header.length < CB_HEADER_SIZE || header[0] != 0x43 || header[1] != 0x42) {
+            throw new IOException("Magic CB inválido para " + name);
+        }
+    }
+
+    private static int readU16BE(byte[] data, int offset) {
+        return ((data[offset] & 0xFF) << 8) | (data[offset + 1] & 0xFF);
+    }
+
+    private static long readU32BE(byte[] data, int offset) {
+        return ((long) (data[offset] & 0xFF) << 24)
+                | ((long) (data[offset + 1] & 0xFF) << 16)
+                | ((long) (data[offset + 2] & 0xFF) << 8)
+                | (long) (data[offset + 3] & 0xFF);
     }
 
     /**

@@ -104,9 +104,34 @@ public class Bus {
         }
     }
 
-    /** 0x80000000|dirección-física es el espejo "real mode" de la dirección física (< 512 MB). */
+    /**
+     * Normaliza alias físicos Xenon antes de resolver dispositivos/RAM.
+     *
+     * 0x80000000-0x9FFFFFFF es el espejo real-mode habitual.
+     * El kernel retail también utiliza el alias superior 0xFFFF8000-0xFFFFFFFF
+     * para la última ventana de 32 KiB de RAM física. En el arranque compat,
+     * el trampoline se deposita en 0x1FFF8000 pero el PPC ejecuta desde
+     * 0xFFFF8000; sin este alias fetchInstruction() lee fuera de RAM y recibe
+     * ceros, aparentando una instrucción PPC ilegal.
+     */
     private static long canon(long address) {
-        return (address >= 0x80000000L && address < 0xA0000000L) ? (address & 0x1FFFFFFFL) : address;
+        // En modo real PPC64, CPU.translateRealAddress() suma HRMOR a la EA
+        // de 32 bits. El alias FFFF8000 puede llegar al bus como
+        // 80000000FFFF8000 cuando HRMOR=8000000000000000. El mirror del
+        // kernel está registrado en la ventana EA de 32 bits; retirar HRMOR
+        // aquí conserva la resolución por DeviceMapping sin alterar RAM.
+        if ((address & 0xFFFFFFFF00000000L) == 0x8000000000000000L) {
+            long low = address & 0xFFFFFFFFL;
+            if (Long.compareUnsigned(low, 0xFFFF8000L) >= 0) {
+                return low;
+            }
+        }
+        if (Long.compareUnsigned(address, 0x80000000L) >= 0
+                && Long.compareUnsigned(address, 0xA0000000L) < 0) {
+            return address & 0x1FFFFFFFL;
+        }
+        // Mantener FFFF8000-FFFFFFFF intacto para el DeviceMapping del mirror.
+        return address;
     }
 
     private DeviceMapping find(long address) {
