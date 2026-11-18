@@ -238,7 +238,9 @@ public final class XexFile {
         if (image == null) throw new IOException("Imagen nula para resolver imports");
         long base = imageBase() & 0xFFFFFFFFL;
         List<ImportEntry> out = new ArrayList<>();
-        for (ImportLibrary lib : importLibraries()) {
+        List<ImportLibrary> libraries = importLibraries();
+        for (int libraryIndex = 0; libraryIndex < libraries.size(); libraryIndex++) {
+            ImportLibrary lib = libraries.get(libraryIndex);
             for (int address : lib.thunkAddresses) {
                 long thunkVa = address & 0xFFFFFFFFL;
                 long rva = thunkVa - base;
@@ -249,24 +251,31 @@ public final class XexFile {
                 int raw = readInt(image, (int) rva);
                 int typeFlag = (raw >>> 24) & 0xFF;
                 int ordinal = raw & 0x00FFFFFF;
-                out.add(new ImportEntry(lib.name, lib.libraryId, thunkVa,
-                        rva, ordinal, typeFlag, raw));
+                out.add(new ImportEntry(libraryIndex, lib.name, lib.libraryId,
+                        lib.digest, thunkVa, rva, ordinal, typeFlag, raw));
             }
         }
         return out;
     }
 
     public static final class ImportEntry {
+        /** Índice del registro ImportLibrary, preserva bibliotecas duplicadas. */
+        public final int libraryIndex;
         public final String library;
         public final int libraryId;
+        /** SHA-1 del registro de biblioteca; copia defensiva. */
+        public final byte[] libraryDigest;
         public final long thunkAddress;
         public final long thunkRva;
         public final int ordinal;
         public final int typeFlag;
         public final int rawWord;
-        ImportEntry(String library, int libraryId, long thunkAddress, long thunkRva,
-                    int ordinal, int typeFlag, int rawWord) {
-            this.library = library; this.libraryId = libraryId;
+        ImportEntry(int libraryIndex, String library, int libraryId, byte[] libraryDigest,
+                    long thunkAddress, long thunkRva, int ordinal, int typeFlag, int rawWord) {
+            this.libraryIndex = libraryIndex;
+            this.library = library;
+            this.libraryId = libraryId;
+            this.libraryDigest = libraryDigest == null ? new byte[0] : libraryDigest.clone();
             this.thunkAddress = thunkAddress; this.thunkRva = thunkRva;
             this.ordinal = ordinal; this.typeFlag = typeFlag; this.rawWord = rawWord;
         }

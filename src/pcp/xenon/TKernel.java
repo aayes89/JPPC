@@ -190,6 +190,36 @@ public final class TKernel {
      * 0x9807A000 y se almacena fuera del SizeOfImage PE; cargar sólo el PE lo
      * dejaba ausente del espacio guest.
      */
+    /** Registra bootanim y carga sus recursos directamente desde FlashFS. */
+    public int registerBootAnimationModule(XenonPeLoader.LoadedImage image,
+            XexFile xex, byte[] expandedPe) throws IOException {
+        registerBootAnimationModule(image);
+        if (xex == null || expandedPe == null) {
+            throw new IOException("XEX e imagen PE expandida son obligatorios para registrar recursos");
+        }
+        int mapped = 0;
+        for (XexFile.Resource resource : xex.resources()) {
+            long offset = resource.address - xex.loadAddress();
+            if (offset < 0 || resource.size <= 0 || resource.size > Integer.MAX_VALUE
+                    || offset + resource.size > expandedPe.length) {
+                throw new IOException("Recurso XEX fuera de imagen: " + resource.name);
+            }
+            long physical = resource.address & 0x1FFFFFFFL;
+            if (physical + resource.size > bus.getMemorySize()) {
+                throw new IOException(String.format("Recurso %s fuera de RAM: VA=%08X size=%08X",
+                        resource.name, resource.address, resource.size));
+            }
+            byte[] bytes = java.util.Arrays.copyOfRange(expandedPe,
+                    (int) offset, (int) (offset + resource.size));
+            memory.writeBlock(resource.address, bytes);
+            bootAnimationResources.put(resource.name.toLowerCase(java.util.Locale.ROOT), resource.address);
+            mapped++;
+            System.out.printf("[TKERNEL] BOOTANIM RESOURCE %s VA=%08X size=%08X source=FlashFS:%s%n",
+                    resource.name, resource.address, resource.size, "XEX image payload");
+        }
+        return mapped;
+    }
+
     public int registerBootAnimationModule(XenonPeLoader.LoadedImage image,
             Path xexPath, Path extractedResourceDirectory) throws IOException {
         registerBootAnimationModule(image);

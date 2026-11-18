@@ -20,12 +20,15 @@ import pcp.xenon.XenonBootCrypto;
 import pcp.xenon.XenonBootCredentials;
 import pcp.xenon.XenonBootImage;
 import pcp.xenon.XenonBootStrapper;
+import pcp.xenon.XenonFuses;
+import pcp.xenon.XenonKernelPatchLoader;
 import pcp.xenon.XenonNandParser;
 import pcp.xenon.XenonFlashFs;
 import pcp.xenon.XenonPeLoader;
 import pcp.xenon.XenonFlashModuleLoader;
 import pcp.xenon.TKernel;
 import pcp.xenon.BootAnimationOverlay;
+import pcp.xenon.XenonBaseImageInspector;
 
 /**
  * Uso: java pcp.PCP [archivo] [opciones] --1bl carga y ejecuta el Boot ROM 1BL
@@ -64,75 +67,6 @@ public class PCP {
         return Long.parseLong(s);
     }
 
-    public static void testXenonBootCrypto() {
-
-        // RC4: RFC 6229, clave 01 02 03 04 05.
-        byte[] rc4Key = XenonBootCrypto.fromHex("0102030405");
-        byte[] rc4Input = new byte[16];
-        byte[] rc4Result = XenonBootCrypto.rc4(rc4Key, rc4Input);
-        String expectedRC4 = "B2396305F03DC027CCC3524A0A1118A8";
-        if (!expectedRC4.equals(XenonBootCrypto.toHex(rc4Result))) {
-            throw new AssertionError("RC4 incorrecto");
-        }
-
-        // SHA-1: RFC 3174.
-        byte[] shaInput = "abc".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
-        String expectedSHA1 = "A9993E364706816ABA3E25717850C26C9CD0D89D";
-        String actualSHA1 = XenonBootCrypto.toHex(XenonBootCrypto.sha1(shaInput));
-        if (!expectedSHA1.equals(actualSHA1)) {
-            throw new AssertionError("SHA-1 incorrecto");
-        }
-
-        // HMAC-SHA1: RFC 2202, test case 1.
-        byte[] hmacKey = new byte[20];
-        Arrays.fill(hmacKey, (byte) 0x0B);
-
-        byte[] hmacMessage = "Hi There".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
-        String expectedHMAC = "B617318655057264E28BC0B6FB378C8EF146BE00";
-        String actualHMAC = XenonBootCrypto.toHex(XenonBootCrypto.hmacSha1(hmacKey, hmacMessage));
-        if (!expectedHMAC.equals(actualHMAC)) {
-            throw new AssertionError("HMAC-SHA1 incorrecto");
-        }
-
-        System.out.println("RC4: OK");
-        System.out.println("SHA-1: OK");
-        System.out.println("HMAC-SHA1: OK");
-    }
-
-    /**
-     * Presenta un recurso gráfico ORIGINAL extraído de dash.xex cuando el guest
-     * todavía no consigue emitir comandos Xenos/XUI. No simula el shell:
-     * muestra literalmente un AppTile de la NAND para verificar el camino FB.
-     */
-    private static void showNandTileFallback(FrameBuffer fb, Path resource) throws Exception {
-        if (!Files.isRegularFile(resource)) {
-            System.out.println("[NAND-TILE] recurso ausente: " + resource);
-            return;
-        }
-        BufferedImage src = ImageIO.read(resource.toFile());
-        if (src == null) {
-            throw new IllegalStateException("Formato gráfico no soportado: " + resource);
-        }
-        int tileW = Math.min(320, fb.getWidth() - 32);
-        int tileH = Math.min(320, fb.getHeight() - 32);
-        BufferedImage scaled = new BufferedImage(tileW, tileH, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = scaled.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        g.drawImage(src, 0, 0, tileW, tileH, null);
-        g.dispose();
-        int ox = 48, oy = 112;
-        for (int y = 0; y < tileH && oy + y < fb.getHeight(); y++) {
-            for (int x = 0; x < tileW && ox + x < fb.getWidth(); x++) {
-                int argb = scaled.getRGB(x, y);
-                if ((argb >>> 24) != 0) {
-                    fb.setPixel(ox + x, oy + y, argb & 0x00FFFFFF);
-                }
-            }
-        }
-        fb.present();
-        System.out.printf("[NAND-TILE] recurso original visible: %s (%dx%d) en FB %dx%d%n",
-                resource, src.getWidth(), src.getHeight(), fb.getWidth(), fb.getHeight());
-    }
 
     public static void main(String[] args) throws Exception {
         String path = "./src/pcp/TESTS/lk.elf";
@@ -150,7 +84,7 @@ public class PCP {
         boolean processCD = false;
         boolean processCE = false;
         boolean processKeyVault = false;
-        boolean elf = false, headless = false, trace = false, vram = false, mandel = false, busTrace = false, oneBl = true, ppc32 = false, xamMode = true, nandDashboardMode = true, dashboardCompat = true;
+        boolean elf = false, headless = false, trace = false, vram = false, mandel = false, busTrace = false, oneBl = true, ppc32 = false, xamMode = true, nandDashboardMode = true, dashboardCompat = true, bootChainMode = false;
         long fbBase = -1;
         String input = null;
         java.util.List<Long> watchList = new java.util.ArrayList<>();
@@ -168,9 +102,25 @@ public class PCP {
             switch (args[i]) {
                 case "--elf":
                     elf = true;
+                    xamMode = false;
+                    nandDashboardMode = false;
+                    oneBl = false;
+                    bootChainMode = false;
+                    nandPath = null;  // No NAND needed for ELF mode
                     break;
                 case "--1bl":
                     oneBl = true;
+                    xamMode = false;
+                    nandDashboardMode = false;
+                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
+                        oneBLPath = args[++i];
+                    }
+                    break;
+                case "--boot-chain":
+                    bootChainMode = true;
+                    oneBl = true;
+                    xamMode = false;
+                    nandDashboardMode = false;
                     break;
                 case "--xam":
                     xamMode = true;
@@ -406,7 +356,7 @@ public class PCP {
                 byte[] dashPe = dash.getXex().image(java.util.Collections.emptyList());
                 Path bootApis = Paths.get("./nandDump/extracted/manifests/boot_api_imports.csv");
                 runtimeKernel.installXamImportsFromXex(
-                        dash.getXex(), dashPe, "dash.xex", bootApis, true);
+                        dash.getXex(), dashPe, "dash.xex", bootApis, false);
                 dash.getImage().start(ppcs.getCpu(), PPCSimulator.MEMORY_SIZE);
                 long threadContext = 0x9FFFD000L;
                 long threadExit = 0x9FFF0010L;
@@ -422,24 +372,10 @@ public class PCP {
                 ppcs.getCpu().writeMemoryWord(threadContext + 0x20, 0L);
                 ppcs.getMemory().writeMemoryWord(moduleInitStub, 0x38600000); // li r3,0
                 ppcs.getMemory().writeMemoryWord(moduleInitStub + 4, 0x4E800020); // blr
-                // Los stubs de arranque de esta imagen contienen una llamada
-                // absoluta a 0x3A00 (dispatcher de runtime no presente). Se
-                // instala un retorno seguro en esa página baja, sólo en compat.
-                ppcs.getMemory().writeMemoryWord(0x3A00L, 0x38600000); // li r3,0
-                ppcs.getMemory().writeMemoryWord(0x3A04L, 0x4E800020); // blr
-                // La imagen depende de varios entrypoints de kernel en la
-                // región baja que este runtime aún no mapea. Stubs de retorno
-                // (sólo 0x1000..0x10000, sólo en compatibilidad).
-                for (long low = 0x100L; low < 0x10000L; low += 4L) {
-                    ppcs.getMemory().writeMemoryWord(low, 0x4E800020);
-                }
-                // Stubs kernel en el espejo alto y dos huecos de código
-                // observados en esta imagen PE; sólo evitan vectores vacíos.
-                runtimeKernel.installCompatibilityKernelMirror();
-                ppcs.getMemory().writeMemoryWord(0x9217D7D8L, 0x4E800020);
-                ppcs.getMemory().writeMemoryWord(0x9217DEE8L, 0x4E800020);
-                ppcs.getMemory().writeMemoryWord(0x3A00L, 0x38600000);
-                ppcs.getMemory().writeMemoryWord(0x3A04L, 0x4E800020);
+                // No se fabrican retornos para imports XAM ausentes ni se
+                // rellenan vectores de kernel con instrucciones blr ficticias.
+                // Los thunks resueltos se enlazan; los no resueltos conservan
+                // sus bytes originales y fallarán sólo si el guest los invoca.
                 // El entrypoint de esta revisión comienza con bctrl y espera
                 // un callback CTR que sólo instala el loader retail. En este
                 // modo aislado se omite ese salto indirecto y se continúa en
@@ -447,12 +383,12 @@ public class PCP {
                 int dashFirst = ppcs.getMemory().readMemoryWord(dash.getEntryPoint());
                 if (dashFirst == 0x4E800421) {
                     ppcs.getMemory().writeMemoryWord(dash.getEntryPoint(), 0x60000000);
-                    System.out.printf("[NAND-COMPAT] ENTRY PATCH bctrl->nop at %08X%n", dash.getEntryPoint());
+                    System.out.printf("[NAND-DASH] ENTRY PATCH bctrl->nop at %08X%n", dash.getEntryPoint());
                 } else {
                     throw new IllegalStateException(String.format(
                             "Entry dashboard inesperado: %08X", dashFirst));
                 }
-                System.out.printf("[NAND-COMPAT] DASHBOARD ENTRY PC=%08X base=%08X size=%08X%n",
+                System.out.printf("[NAND-DASH] DASHBOARD ENTRY PC=%08X base=%08X size=%08X%n",
                         ppcs.getCpu().getPc(), dash.getImage().getImageBase(),
                         dash.getImage().getSizeOfImage());
                 xamMode = false;
@@ -527,6 +463,86 @@ public class PCP {
 
         if (nandDashboardMode) {
             // XAM o el entrypoint retail de compatibilidad ya están preparados.
+        } else if (bootChainMode) {
+            // Modo híbrido: 1BL -> boot chain completa -> dashboard
+            System.out.println("[BOOT-CHAIN] Iniciando cadena de arranque completa...");
+            if (oneBLPath == null) {
+                throw new IllegalArgumentException("--boot-chain requiere --1bl con ruta de 1BL");
+            }
+            // 1. Cargar 1BL
+            ppcs.load1BL(oneBLPath);
+            // 2. Ejecutar 1BL de forma síncrona (limitado para evitar bucles de hardware)
+            //    El 1BL hace init básico y luego salta a CB_A
+            long executed = ppcs.runBlocking(80000);
+            System.out.printf("[BOOT-CHAIN] 1BL ejecutado: %d instrucciones, PC=0x%x, halted=%s%n",
+                    executed, ppcs.getCpu().getPc(), ppcs.getCpu().isHalted());
+            // 3. Procesar boot chain en software (CB_A -> CB_B -> CD -> CE -> KeyVault -> Kernel)
+            XenonBootStrapper bootstrapper = XenonBootStrapper.load(Paths.get(nandPath));
+            XenonBootCredentials credentials = bootCredentialsPath == null
+                    ? XenonBootCredentials.readFromUser()
+                    : XenonBootCredentials.load(Paths.get(bootCredentialsPath));
+            try (XenonBootCredentials activeCredentials = credentials) {
+                // CB_A
+                XenonBootImage cbA = bootstrapper.prepareCBA(activeCredentials);
+                System.out.printf("[BOOT-CHAIN] CB_A version=%04X size=%08X state=%s%n",
+                        cbA.getVersion(), cbA.getImageSize(), cbA.getState());
+                // CB_B
+                XenonBootImage cbB = bootstrapper.prepareCBB(activeCredentials);
+                System.out.printf("[BOOT-CHAIN] CB_B version=%04X size=%08X state=%s integrity=VERIFIED%n",
+                        cbB.getVersion(), cbB.getImageSize(), cbB.getState());
+                // CD
+                XenonBootImage cd = bootstrapper.prepareCD(activeCredentials);
+                System.out.printf("[BOOT-CHAIN] CD version=%04X size=%08X state=%s integrity=VERIFIED%n",
+                        cd.getVersion(), cd.getImageSize(), cd.getState());
+                // CE
+                XenonBootImage ce = bootstrapper.prepareCE(activeCredentials);
+                byte[] baseKernel = ce.getExpandedData();
+                System.out.printf("[BOOT-CHAIN] CE version=%04X stored=%08X declared=%08X state=%s target=0x%016X baseKernel=%08X%n",
+                        ce.getVersion(), ce.getImageSize(), ce.getDeclaredSize(), ce.getState(),
+                        ce.getLoadAddress(), baseKernel.length);
+                System.out.printf("[BOOT-CHAIN] BASE IMAGE magic=%02X%02X header=%02X%02X%n",
+                        baseKernel[0] & 0xFF, baseKernel[1] & 0xFF,
+                        baseKernel[2] & 0xFF, baseKernel[3] & 0xFF);
+                // KeyVault
+                XenonBootImage keyVault = bootstrapper.prepareKeyVault(activeCredentials);
+                System.out.printf("[BOOT-CHAIN] KeyVault size=%08X state=%s integrity=VERIFIED%n",
+                        keyVault.getImageSize(), keyVault.getState());
+                // Preparar kernel
+                XenonFuses fuses = new XenonFuses();
+                if (fusesPath != null) {
+                    fuses.load(Paths.get(fusesPath));
+                }
+                XenonKernelPatchLoader.Result patchedKernel = bootstrapper.prepareKernel(activeCredentials, fuses);
+                XenonBaseImageInspector.Result info = patchedKernel.imageInfo;
+                System.out.printf("[BOOT-CHAIN] Kernel preparado: base=0x%08X entry=0x%08X size=0x%X%n",
+                        info.kernelImageBase, info.kernelEntryPoint, info.kernelSizeOfImage);
+                // Cargar kernel en memoria
+                ppcs.loadKernel(patchedKernel);
+                System.out.println("[BOOT-CHAIN] Kernel cargado en memoria guest");
+                // Detachear los aliases de ejecución del 1BL (ROM, config ring y SRAM)
+                // para que el kernel tenga control completo sobre la memoria física
+                ppcs.detachBootExecutionAliases();
+                System.out.println("[BOOT-CHAIN] Aliases del 1BL detacheados para el kernel");
+                
+                // Debug: verificar memoria antes de cargar el kernel
+                System.out.println("[DEBUG] Verificando memoria antes de cargar kernel...");
+                for (int i = 0; i < 8; i++) {
+                    int val = ppcs.getMemory().readMemoryWord(i * 4);
+                    System.out.printf("[DEBUG] mem[0x%08X] = 0x%08X%n", i * 4, val);
+                }
+                
+                // Reiniciar CPU para que ejecute desde el entry point del kernel
+                ppcs.restartCpuFromKernel();
+
+                // Ejecutar el HV de forma síncrona para que inicialice el sistema
+                // El HV configura MMU, mapea memoria, e inicia xboxkrnl.exe
+                System.out.println("[BOOT-CHAIN] Iniciando ejecución síncrona del HV...");
+                long hvExecuted = ppcs.runBlocking(2000000);
+                System.out.printf("[BOOT-CHAIN] HV ejecutado: %d instrucciones, PC=0x%x, halted=%s%n",
+                        hvExecuted, ppcs.getCpu().getPc(), ppcs.getCpu().isHalted());
+                System.out.printf("[BOOT-CHAIN] Instrucciones totales: %d%n",
+                        ppcs.getCpu().getInstructionCount());
+            }
         } else if (oneBl) {
             if (oneBLPath == null) {
                 throw new IllegalArgumentException("--1bl requiere configurar la ruta de 1BL");
@@ -588,6 +604,7 @@ public class PCP {
                 }
             }
             System.out.println("[headless] VRAM palabras no nulas: " + nz + " (base FB 0x" + Long.toHexString(ppcs.getFbBase()) + ")");
+            fb.dumpVRAM(new File("vram_debug.txt"));
             fb.savePNG(new File(png));
             if (xamMode) {
                 File tracePng = new File("xam-execution-trace.png");
@@ -689,7 +706,6 @@ public class PCP {
             }
         });
 
-        ppcs.start();
     }
 
 }

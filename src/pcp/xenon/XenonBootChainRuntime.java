@@ -389,7 +389,7 @@ public final class XenonBootChainRuntime {
                 throw new IOException("No se encontró una compuerta CE única en CD");
             }
 
-            PPCSimulator simulator = new PPCSimulator(800, 600);
+            PPCSimulator simulator = new PPCSimulator(1280, 720);
             simulator.loadNand(nandPath);
             simulator.loadFuses(fusesPath);
             simulator.setBootSequenceModel(true);

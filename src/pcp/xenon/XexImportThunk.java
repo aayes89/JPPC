@@ -80,8 +80,10 @@ public final class XexImportThunk {
                 | (long) (image[p + 3] & 0xFF);
 
         int type = (int) ((raw >>> 24) & 0xFF);
+        // XEX thunk: TYPE ocupa el byte alto y ORDINAL los 24 bits bajos.
+        // El byte 16..23 no es un hint independiente.
         int hint = (int) ((raw >>> 16) & 0xFF);
-        int ordinal = (int) (raw & 0xFFFF);
+        int ordinal = (int) (raw & 0x00FFFFFF);
 
         return new XexImportThunk(
                 thunkVA,
@@ -101,11 +103,11 @@ public final class XexImportThunk {
 
     public String describe() {
         return String.format(
-                "THUNK VA=%08X RAW=%08X TYPE=%02X HINT=%02X ORD=%04X",
+                "THUNK VA=%08X RAW=%08X TYPE=%02X ORD=%06X BYTE16=%02X",
                 address,
                 rawValue,
                 type,
-                hint,
-                ordinal);
+                ordinal,
+                hint);
     }
 }

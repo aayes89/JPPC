@@ -345,6 +345,10 @@ public final class XenonKernelRuntime {
             XenonPeLoader peLoader = new XenonPeLoader();
             XenonPeLoader.LoadedImage loadedKernel
                     = peLoader.loadMemoryImage(kernelPe, simulator.getMemory());
+            // El kernel retail descubre Xenos mediante la ventana virtual 0x7FC80000.
+            // La superficie primaria inicial de Xenon ocupa 0x1E000000.
+            simulator.setFbBase(PPCSimulator.FB_BASE_ELF);
+            simulator.initializeXenonFramebuffer();
             if (hrmor != 0) {
                 peLoader.loadMemoryImage(kernelPe, simulator.getMemory(), hrmor + loadedKernel.getImageBase());
             }

@@ -69,9 +69,9 @@ public class CPU {
     // Registros
     private long pc;
     private long acc; // Accumulator
-    // Registros de propósito general (r0-r31)
+    // Registros de propÃ³sito general (r0-r31)
     private long[] gpr = new long[32];
-    // Registro de condición (CR: 32 bits, 8 campos de 4 bits)
+    // Registro de condiciÃ³n (CR: 32 bits, 8 campos de 4 bits)
     private long cr;
     private long lr;   // Link Register
     private long ctr;  // Count Register (64 bits)
@@ -99,7 +99,7 @@ public class CPU {
     private long dar;  // Data Address Register
     private long dsisr; // Data Storage Interrupt Status Register
     private int pvr;  // Processor Version Register
-    private long timeBase; // Combinación de TBU y TBL (64 bits)
+    private long timeBase; // CombinaciÃ³n de TBU y TBL (64 bits)
     private int dec;       // Decrementer
     private long fpscr; // Floating-Point Status and Control Register
     private long vscr;  // Vector Status and Control Register
@@ -110,7 +110,7 @@ public class CPU {
     private int[] sr = new int[16];
     private long reserveAddress = -1;
 
-    // Máscaras para bits del XER    
+    // MÃ¡scaras para bits del XER    
     public static final int XER_SO = 0x80000000; // Summary Overflow (bit 0 PPC)
     public static final int XER_OV = 0x40000000; // Overflow
     public static final int XER_CA = 0x20000000; // Carry
@@ -169,9 +169,9 @@ public class CPU {
     }
 
     // =====================================================================
-    // Núcleo de ejecución PowerPC 64 bits (modo SF=1 como el Xenon real).
+    // NÃºcleo de ejecuciÃ³n PowerPC 64 bits (modo SF=1 como el Xenon real).
     // Los GPR son de 64 bits; las instrucciones "de palabra" siguen la ISA.
-    // Los accesos a memoria usan los 32 bits bajos de la dirección efectiva.
+    // Los accesos a memoria usan los 32 bits bajos de la direcciÃ³n efectiva.
     // =====================================================================
     private static final long M32 = 0xFFFFFFFFL;
     private long nextPc;
@@ -231,7 +231,7 @@ public class CPU {
         return out;
     }
 
-    /** Última dirección registrada por el trazador de ejecución, o -1. */
+    /** Ãšltima direcciÃ³n registrada por el trazador de ejecuciÃ³n, o -1. */
     public synchronized long getLastExecutedPc() {
         if (execTraceSize == 0) return -1L;
         int at = (execTraceWrite - 1 + EXEC_TRACE_CAPACITY) % EXEC_TRACE_CAPACITY;
@@ -274,7 +274,7 @@ public class CPU {
         return instructionCount;
     }
 
-    /** Última instrucción ilegal capturada por el decodificador. */
+    /** Ãšltima instrucciÃ³n ilegal capturada por el decodificador. */
     public long getLastIllegalInsn() {
         return lastIllegalInsn;
     }
@@ -345,7 +345,7 @@ public class CPU {
     }
 
     /**
-     * Máscara con numeración PowerPC de 64 bits (bit 0 = MSB).
+     * MÃ¡scara con numeraciÃ³n PowerPC de 64 bits (bit 0 = MSB).
      */
     private static long mask64(int mb, int me) {
         long a = -1L >>> mb;
@@ -445,7 +445,7 @@ public class CPU {
     }
 
     /**
-     * size: 1,2,4,8. sign: extensión de signo (lha/lwa).
+     * size: 1,2,4,8. sign: extensiÃ³n de signo (lha/lwa).
      */
     private void doLoad(int size, boolean sign, int rd, long ea) {
         long v;
@@ -501,13 +501,43 @@ public class CPU {
         return hrmorValue;
     }
 
+    public void setHrmorValue(long v) {
+        hrmorValue = v;
+    }
+
     public long getHID1() {
         return hid1Value;
     }
 
-    /**
+    public void setHid1Value(long v) {
+        hid1Value = v;
+    }
+
+    public long getTlbSPR3B3() {
+        return tlbSPR3B3;
+    }
+
+    public void setTlbSPR3B3(long v) {
+        tlbSPR3B3 = v;
+    }
+
+    public long getTlbSPR3B4() {
+        return tlbSPR3B4;
+    }
+
+    public void setTlbSPR3B4(long v) {
+        tlbSPR3B4 = v;
+    }
+
+    public long getTlbSPR3B5() {
+        return tlbSPR3B5;
+    }
+
+    public void setTlbSPR3B5(long v) {
+        tlbSPR3B5 = v;
+    }/**
      * true entre un lwarx/ldarx y su stwcx./stdcx. (el planificador no debe
-     * cambiar de hilo ahí).
+     * cambiar de hilo ahÃ­).
      */
     public boolean hasReservation() {
         return reserveAddress != -1;
@@ -519,7 +549,7 @@ public class CPU {
     private final java.util.Set<Long> watchPcs = new java.util.HashSet<>();
 
     /**
-     * Diagnóstico: imprime registros cada vez que el PC alcanza esta dirección
+     * DiagnÃ³stico: imprime registros cada vez que el PC alcanza esta direcciÃ³n
      * (se compara con los 32 bits bajos).
      */
     public void addWatchPc(long a) {
@@ -533,6 +563,13 @@ public class CPU {
 
     public void setSprTrace(boolean t) {
         sprTrace = t;
+    }
+
+    /** Configura un SPR genÃ©rico (Ãºtil para TLB y otros SPR no mapeados). */
+    public void setSpr(int spr, long v) {
+        if (spr >= 0 && spr < sprOther.length) {
+            sprOther[spr] = v;
+        }
     }
 
     private void sprLog(String k, int spr, long v) {
@@ -589,7 +626,7 @@ public class CPU {
             case 287:
                 return pvr & M32;
             case 1023:
-                return pir; // PIR: índice del hilo hardware
+                return pir; // PIR: Ã­ndice del hilo hardware
             default:
                 sprLog("mfspr", spr, spr >= 0 && spr < sprOther.length ? sprOther[spr] : 0);
                 return spr >= 0 && spr < sprOther.length ? sprOther[spr] : 0;
@@ -744,8 +781,8 @@ public class CPU {
     }
 
     /**
-     * Entrada unificada para fallos de traducción/almacenamiento. DSISR bit 25
-     * identifica una operación de escritura; DAR conserva la EA. La excepción
+     * Entrada unificada para fallos de traducciÃ³n/almacenamiento. DSISR bit 25
+     * identifica una operaciÃ³n de escritura; DAR conserva la EA. La excepciÃ³n
      * se entrega por la misma ruta que el resto de excepciones PPC.
      */
     public void raiseStorageException(boolean instruction, long effectiveAddress, boolean write) {
@@ -759,7 +796,7 @@ public class CPU {
     }
 
     /**
-     * Entrada de excepción PowerPC. savedPc = valor para SRR0.
+     * Entrada de excepciÃ³n PowerPC. savedPc = valor para SRR0.
      */
     private void takeException(int vector, long savedPc, long extra) {
         srr0 = savedPc;
@@ -768,7 +805,7 @@ public class CPU {
         interruptMode = true;
         nextPc = addressWidth(vector);
         if (bus.readWord(vector) == 0) {
-            System.err.println("[CPU] Excepción 0x" + Integer.toHexString(vector) + " en PC=0x"
+            System.err.println("[CPU] ExcepciÃ³n 0x" + Integer.toHexString(vector) + " en PC=0x"
                     + Long.toHexString(savedPc) + " sin manejador instalado: CPU detenida"
                     + (lastIllegalInsn != 0 ? String.format(" (insn 0x%08x)", lastIllegalInsn) : ""));
             halted = true;
@@ -776,13 +813,13 @@ public class CPU {
     }
 
     private void illegal(int insn) {
-        System.err.println(String.format("[CPU] Instrucción ilegal/no implementada 0x%08x en PC=0x%x",
+        System.err.println(String.format("[CPU] InstrucciÃ³n ilegal/no implementada 0x%08x en PC=0x%x",
                 insn, pc));
         lastIllegalInsn = insn & M32;
         takeException(ExceptionHandler.EXCEPTION_PROGRAM, pc, 0x00080000L);
     }
 
-    private static double sd(double v) { // redondeo a precisión simple
+    private static double sd(double v) { // redondeo a precisiÃ³n simple
         return (double) (float) v;
     }
 
@@ -903,7 +940,7 @@ public class CPU {
                         long returnAddress = lr;
                         long result = handler.invoke(this, serviceNumber);
                         w(3, result & M32);
-                        // Los import thunks son llamadas de función: sc debe
+                        // Los import thunks son llamadas de funciÃ³n: sc debe
                         // volver al LR establecido por bl/bctrl, no a pc+4.
                         nextPc = addressWidth(returnAddress);
                     }
@@ -934,7 +971,8 @@ public class CPU {
                             long savedSRR0 = srr0;
                             long savedSRR1 = srr1;
 
-                            System.out.printf("[RETURN-TRACE] PC=%016X XO=%d SRR0=%016X SRR1=%016X MSR_OLD=%016X%n", pc, xxo, savedSRR0, savedSRR1, msr);
+                            // Suprimido para reducir output verbose
+                            // System.out.printf("[RETURN-TRACE] PC=%016X XO=%d SRR0=%016X SRR1=%016X MSR_OLD=%016X%n", pc, xxo, savedSRR0, savedSRR1, msr);
 
                             // Restaurar primero el estado del procesador.
                             msr = savedSRR1;
@@ -942,10 +980,10 @@ public class CPU {
 
                             interruptMode = false;
 
-                            // Calcular la dirección con el estado restaurado.
+                            // Calcular la direcciÃ³n con el estado restaurado.
                             nextPc = addressWidth(savedSRR0 & ~3L);
 
-                            System.out.printf("[RETURN-RESTORE] PC=%016X NEXT=%016X MSR=%016X SF=%b%n", pc, nextPc, msr, sf());
+                            // Suprimido: System.out.printf("[RETURN-RESTORE] PC=%016X NEXT=%016X MSR=%016X SF=%b%n", pc, nextPc, msr, sf());
                             break;
                         }
                         case 150:
@@ -1212,8 +1250,8 @@ public class CPU {
                     illegal(insn);
             }
         } catch (MMU.TranslationFault fault) {
-            // La MMU ya entregó DSI/ISI y fijó DAR/DSISR. No ejecutar acceso físico ni
-            // convertir el fallo de almacenamiento en una excepción de programa.
+            // La MMU ya entregÃ³ DSI/ISI y fijÃ³ DAR/DSISR. No ejecutar acceso fÃ­sico ni
+            // convertir el fallo de almacenamiento en una excepciÃ³n de programa.
         } catch (RuntimeException e) {
             System.err.println("[CPU] Error ejecutando 0x" + Integer.toHexString(insn) + " en PC=0x"
                     + Long.toHexString(pc) + ": " + e);
@@ -1233,8 +1271,8 @@ public class CPU {
 
     // ------------------------------------------------------------------
     // AltiVec / VMX (opcode 4 y cargas/almacenes del opcode 31).
-    // 32 registros de 128 bits; vreg[4*n + k] = palabra k (0 = la más significativa, big-endian).
-    // VMX128 (Xenon, opcodes 5/6 y variantes de 128 registros) NO está implementado.
+    // 32 registros de 128 bits; vreg[4*n + k] = palabra k (0 = la mÃ¡s significativa, big-endian).
+    // VMX128 (Xenon, opcodes 5/6 y variantes de 128 registros) NO estÃ¡ implementado.
     // ------------------------------------------------------------------
     private final int[] vreg = new int[128];
 
@@ -1364,7 +1402,7 @@ public class CPU {
     }
 
     /**
-     * Opcode 4 (AltiVec). Devuelve false si la instrucción no está
+     * Opcode 4 (AltiVec). Devuelve false si la instrucciÃ³n no estÃ¡
      * implementada.
      */
     private boolean execAltivec(int insn) {
@@ -1976,7 +2014,7 @@ public class CPU {
                 break;
             }     // orc
             case 826:
-            case 827: { // sradi (xo de 10 bits: 826/827 según el bit sh5)
+            case 827: { // sradi (xo de 10 bits: 826/827 segÃºn el bit sh5)
                 int sh = ((insn >>> 11) & 31) | ((insn & 2) << 4);
                 long v = s >> sh;
                 setCAf(s < 0 && sh != 0 && (s & ((1L << sh) - 1)) != 0);
@@ -2254,7 +2292,7 @@ public class CPU {
                     illegal(insn);
                 }
                 break;
-            case 1014: { // dcbz (32 bytes) / dcbz128 (rd=1, línea de 128 bytes del Xenon)
+            case 1014: { // dcbz (32 bytes) / dcbz128 (rd=1, lÃ­nea de 128 bytes del Xenon)
                 int line = rd == 1 ? 128 : 32;
                 long e = eaX(ra, rb) & ~(long) (line - 1);
                 for (int i = 0; i < line; i += 4) {
@@ -2446,8 +2484,8 @@ public class CPU {
         }
     }
 
-    // ELFv1 (PPC64): una dirección dentro de .opd es un descriptor {entrada, TOC, entorno}.
-    // Algunos firmwares (p. ej. LK) hacen blr/bctr directamente a un descriptor; se resuelve aquí.
+    // ELFv1 (PPC64): una direcciÃ³n dentro de .opd es un descriptor {entrada, TOC, entorno}.
+    // Algunos firmwares (p. ej. LK) hacen blr/bctr directamente a un descriptor; se resuelve aquÃ­.
     private long opdStart = 0, opdEnd = 0;
     private boolean opdNoted = false;
 
@@ -2465,7 +2503,7 @@ public class CPU {
     }
 
     /**
-     * Ejecuta una instrucción completa (fetch + execute + tick +
+     * Ejecuta una instrucciÃ³n completa (fetch + execute + tick +
      * interrupciones).
      */
     public void step() {
@@ -2486,7 +2524,7 @@ public class CPU {
         try {
             insn = fetchInstruction();
         } catch (MMU.TranslationFault fault) {
-            // ISI ya fue entregada por la MMU; no decodificar una instrucción sustituta.
+            // ISI ya fue entregada por la MMU; no decodificar una instrucciÃ³n sustituta.
             pc = addressWidth(nextPc);
             tick();
             checkInterrupts();
@@ -2553,7 +2591,7 @@ public class CPU {
     private long tbIncrement = 1;
 
     /**
-     * Ticks del time base por instrucción ejecutada (acelera los retardos
+     * Ticks del time base por instrucciÃ³n ejecutada (acelera los retardos
      * basados en mftb).
      */
     public void setTbIncrement(long n) {
@@ -2565,9 +2603,9 @@ public class CPU {
         TBU = (int) (timeBase >>> 32);
         TBL = (int) timeBase;
 
-        // DEC es un contador descendente de 32 bits. La excepción se genera
+        // DEC es un contador descendente de 32 bits. La excepciÃ³n se genera
         // cuando el contador cruza de no-negativo a negativo (underflow), no
-        // cuando alcanza cero. La aritmética debe conservar el wrap de 32 bits.
+        // cuando alcanza cero. La aritmÃ©tica debe conservar el wrap de 32 bits.
         int previous = dec;
         dec -= (int) tbIncrement;
         if (previous >= 0 && dec < 0) {
@@ -2678,7 +2716,7 @@ public class CPU {
         this.sr = sr;
     }
 
-    // Métodos para operaciones atómicas
+    // MÃ©todos para operaciones atÃ³micas
     public long getReserveAddress() {
         return reserveAddress;
     }
@@ -2776,8 +2814,8 @@ public class CPU {
     }
 
     public void setDec(int dec) {
-        // El registro contiene un patrón de 32 bits sin signo; conservar
-        // también valores con el bit 31 activo es necesario para modelar DEC.
+        // El registro contiene un patrÃ³n de 32 bits sin signo; conservar
+        // tambiÃ©n valores con el bit 31 activo es necesario para modelar DEC.
         this.dec = dec;
         this.decPending = false;
     }
@@ -2790,7 +2828,7 @@ public class CPU {
         this.interruptMode = interrupt;
     }
 
-    // Método para obtener un campo específico del CR
+    // MÃ©todo para obtener un campo especÃ­fico del CR
     public long getCrField(long crf) {
         long shift = (7 - crf) * 4;
         return (cr >> shift) & 0xF;
@@ -2801,7 +2839,7 @@ public class CPU {
         return exceptionHandler;
     }
 
-    // Método para establecer un campo específico del CR
+    // MÃ©todo para establecer un campo especÃ­fico del CR
     public void setCrField(int crf, long value) {
         int shift = (7 - crf) * 4;
         int mask = 0xF << shift;
@@ -2813,7 +2851,7 @@ public class CPU {
      *
      * @param crf Campo del CR a actualizar (0-7)
      * @param value Puede ser: - Un valor entero para calcular los flags
-     * automáticamente - Un valor de 4 bits directo (para operaciones de punto
+     * automÃ¡ticamente - Un valor de 4 bits directo (para operaciones de punto
      * flotante)
      * @param direct Si true, usa value como valor directo de 4 bits Si false,
      * calcula los flags a partir del valor entero
@@ -2843,7 +2881,7 @@ public class CPU {
         cr = (cr & ~mask) | (crfValue << shift);
     }
 
-    // Versión sobrecargada para mantener compatibilidad con código existente
+    // VersiÃ³n sobrecargada para mantener compatibilidad con cÃ³digo existente
     public void updateCRField(long crf, long value) {
         // Por defecto, asumimos que es un valor entero (no directo)
         updateCRField(crf, value, false);
@@ -2867,9 +2905,9 @@ public class CPU {
         }
     }
 
-    // ---- Acceso a memoria: dirección efectiva -> MMU -> bus (sin pasar por la caché) ----
-    // La MMU (BAT/páginas) está desactivada por defecto: los firmwares del Xenon (XeLL, LK) corren
-    // en modo real/hipervisor y sólo activan IR/DR de forma nominal.
+    // ---- Acceso a memoria: direcciÃ³n efectiva -> MMU -> bus (sin pasar por la cachÃ©) ----
+    // La MMU (BAT/pÃ¡ginas) estÃ¡ desactivada por defecto: los firmwares del Xenon (XeLL, LK) corren
+    // en modo real/hipervisor y sÃ³lo activan IR/DR de forma nominal.
     private boolean mmuEnabled = false;
 
     public void setMmuEnabled(boolean e) {
@@ -2896,7 +2934,18 @@ public class CPU {
         } else if (!sf()) {
             physicalAddress = translateRealAddress(pc & M32);
         } else {
-            physicalAddress = pc;
+            // Canonicalizar dirección en modo 64 bits (SF=1)
+            // Las direcciones con bits altos deben mapearse a RAM física
+            long addr = pc;
+            if ((addr >>> 32) != 0) {
+                addr &= 0xFFFFFFFFL;
+            }
+            // Mirror físico de RAM de 512 MiB: 0x80000000 + X -> X
+            if (Long.compareUnsigned(addr, 0x80000000L) >= 0
+                    && Long.compareUnsigned(addr, 0xA0000000L) < 0) {
+                addr = addr & 0x1FFFFFFFL;
+            }
+            physicalAddress = addr;
         }
 
         return bus.readWord(physicalAddress);
@@ -3270,8 +3319,11 @@ public class CPU {
     /**
      * Ventana de E/S que xboxkrnl usa para el southbridge (UART 0x1000, SMC
      * 0x1080, SATA 0x1300, fuses, SFCX...). El HV la mapea a 0xEA000000 del bus;
-     * no es RAM, así que no depende de HRMOR.
+     * no es RAM, asÃ­ que no depende de HRMOR.
      */
+    private static final long KERNEL_XENOS_VIRT_BASE = 0x7FC80000L;
+    private static final long KERNEL_XENOS_SIZE = 0x20000L;
+    private static final long KERNEL_XENOS_BUS_BASE = 0xEC800000L;
     private static final long KERNEL_IO_VIRT_BASE = 0x7FEA0000L;
     private static final long KERNEL_IO_SIZE = 0x10000L;
     private static final long KERNEL_IO_BUS_BASE = 0xEA000000L;
@@ -3280,6 +3332,11 @@ public class CPU {
         if (!sf() && effectiveAddress >= 0
                 && effectiveAddress <= 0xFFFFFFFFL) {
 
+            if (effectiveAddress >= KERNEL_XENOS_VIRT_BASE
+                    && effectiveAddress < KERNEL_XENOS_VIRT_BASE + KERNEL_XENOS_SIZE) {
+                return KERNEL_XENOS_BUS_BASE
+                        | (effectiveAddress - KERNEL_XENOS_VIRT_BASE);
+            }
             if (effectiveAddress >= KERNEL_IO_VIRT_BASE
                     && effectiveAddress < KERNEL_IO_VIRT_BASE + KERNEL_IO_SIZE) {
                 return KERNEL_IO_BUS_BASE | (effectiveAddress & (KERNEL_IO_SIZE - 1));

@@ -12,14 +12,20 @@ import pcp.gpu.FrameBuffer;
 import pcp.gpu.NandImage;
 import pcp.gpu.ToyGpu;
 import pcp.xenon.XenonBootController;
+import pcp.xenon.XenonBootCredentials;
+import pcp.xenon.XenonBootImage;
+import pcp.xenon.XenonBootState;
 import pcp.xenon.XenonCrypto;
 import pcp.xenon.XenonFuses;
+import pcp.xenon.XenonKernelPatchLoader;
+import pcp.xenon.XenonNandParser;
 import pcp.xenon.XenonNandWindow;
 import pcp.xenon.XenonSata;
 import pcp.xenon.XenonSfcx;
 import pcp.xenon.XenonSmc;
 import pcp.xenon.XenonUart;
 import pcp.xenon.XenosGpu;
+import pcp.xenon.XenonBaseImageInspector;
 import pcp.system.Bus;
 import pcp.system.CacheController;
 import pcp.system.Debugger;
@@ -65,8 +71,9 @@ public class PPCSimulator {
     private final XenonSfcx sfcx = new XenonSfcx();
     private final XenonSata sata = new XenonSata();
     private final XenonCrypto crypto = new XenonCrypto();
-    private final FrameBuffer frameBuffer;
-    private final int fbW, fbH;
+    private FrameBuffer frameBuffer;
+    private int fbW;
+    private int fbH;
     private long fbBase = FB_BASE;
     private boolean fbAttached = false;
     private boolean fbBaseUserSet = false;
@@ -77,14 +84,14 @@ public class PPCSimulator {
     private XenonNandWindow bootNandWindow;
     private boolean elfMode = false;
     private boolean xell = false;
-    public static final long FB_BASE_ELF = 0x1E000000L; // superficie Xenos usada por XeLL Xenon (1280x720)
+    public static final long FB_BASE_ELF = 0x9E000000L; // Xenos framebuffer usado por XeLL (1280x720)
 
     private volatile boolean running = false;
     private boolean debugMode = false;
     private Thread thread;
 
     public PPCSimulator() {
-        this(800, 600);
+        this(1280, 720);
     }
 
     public PPCSimulator(int fbWidth, int fbHeight) {
@@ -191,6 +198,21 @@ public class PPCSimulator {
         frameBuffer.present();
         System.out.printf("[XENOS-FB] READY BASE=%08X SIZE=%dx%d PITCH=%d TILE=%d%n",
                 fbBase, fbW, fbH, frameBuffer.getPitchBytes(), frameBuffer.getTileMode());
+    }
+
+    /**
+     * Recrea el framebuffer con nueva resolución (para ELF/libxenon que usan 1280x720).
+     * Se llama ANTES de attachFb() para que el bus no tenga dispositivos en la nueva dirección.
+     */
+    private void recreateFrameBuffer(int newW, int newH) {
+        System.out.printf("[FB] Recreando framebuffer: %dx%d -> %dx%d%n", fbW, fbH, newW, newH);
+        fbW = newW;
+        fbH = newH;
+        frameBuffer = new FrameBuffer(fbW, fbH);
+        // Re-attach console, UART, SMC, etc. (los dispositivos que no se mueven)
+        // El framebuffer y sus registros se re-attach en attachFb()
+        bus.detachDevice(frameBuffer.getRegisters());
+        bus.attachDevice(frameBuffer.getRegisters(), FB_REGS, FB_REGS + 0xF);
     }
 
     /**
@@ -349,6 +371,90 @@ public class PPCSimulator {
      * Carga una imagen NAND Xenon de solo lectura antes de ejecutar el
      * firmware.
      */
+    /**
+     * Carga la imagen base kernel (HV + xboxkrnl.exe) resultante del boot chain.
+     * La imagen se descomprime desde CE, se aplica el CF/CG, y se carga en memoria.
+     */
+    public void loadKernel(XenonKernelPatchLoader.Result patchedKernel) throws IOException {
+        if (patchedKernel == null) {
+            throw new IllegalArgumentException("Kernel patchado nulo");
+        }
+        byte[] image = patchedKernel.getImage();
+        XenonBaseImageInspector.Result info = patchedKernel.imageInfo;
+        
+        System.out.printf("[KERNEL] Cargando kernel: HV version=%04X entry=0x%08X%n",
+                info.hypervisorVersion, info.hypervisorEntryOffset);
+        System.out.printf("[KERNEL] Kernel base=0x%08X entry=0x%08X size=0x%X sections=%d%n",
+                info.kernelImageBase, info.kernelEntryPoint,
+                info.kernelSizeOfImage, info.kernelSectionCount);
+        
+        // Cargar imagen completa en memoria (HV + kernel)
+        // La imagen base comienza en 0x00000000 (HV) y el kernel en 0x40000
+        memory.writeBlock(0x00000000L, image);
+        
+        // Verificar que el kernel está en la memoria correcta
+        long entryPhys = info.kernelEntryPoint & 0xFFFFFFFFL;
+        int firstWord = memory.readMemoryWord(entryPhys);
+        System.out.printf("[KERNEL] Verificación: entry físico=0x%08X, instrucción=0x%08X%n",
+                entryPhys, firstWord);
+        
+        // Configurar CPU para ejecutar el kernel
+        // SF=1 para modo 64 bits (Xenon usa SF=1)
+        cpu.setMsr(cpu.getMsr() | 0x8000000000000000L);
+        
+        // Configurar TOC (Thread Pointer) para el kernel
+        cpu.setGPR(2, info.kernelImageBase);
+        
+        // Configurar HRMOR y HID1 para el modo real de Xenon
+        cpu.setHrmorValue(0x80000000L);
+        cpu.setHid1Value(0x80000000L);
+        
+        // Configurar TLB para el mapeo de memoria
+        // TLB de 512MB en modo real
+        cpu.setSpr(XenonBootState.SPR_TLB_CFG_0, XenonBootState.OBSERVED_TLB_CFG_0);
+        cpu.setSpr(XenonBootState.SPR_TLB_CFG_1, XenonBootState.OBSERVED_TLB_CFG_1);
+        cpu.setSpr(XenonBootState.SPR_TLB_CFG_2, XenonBootState.OBSERVED_TLB_CFG_2);
+        
+        // Configurar SRR0 y SRR1 para la transición
+        cpu.setSrr0(0x00000100L);
+        cpu.setSrr1(0x00002000L);
+        
+        // Configurar el entry point: en Xenon real, el CPU arranca por el HV
+        // (offset 0x100 desde base física 0x0). El HV configura la MMU y
+        // salta al kernel en 0x80040000/0x80123078.
+        long hvEntry = 0x00000100L;
+        cpu.setPc(hvEntry);
+        System.out.printf("[KERNEL] Entry point corregido: HV=0x%08X (kernel virtual=0x%08X)%n",
+                hvEntry, info.kernelEntryPoint);
+        
+        System.out.printf("[KERNEL] PC=0x%08X MSR=0x%016X HRMOR=0x%08X HID1=0x%08X%n",
+                cpu.getPc(), cpu.getMsr(), cpu.getHRMOR(), cpu.getHID1());
+        
+        // Inicializar framebuffer y GPU para el kernel
+        initializeXenonFramebuffer();
+        
+        // Limpiar imagen temporal
+        java.util.Arrays.fill(image, (byte) 0);
+    }
+    
+    /**
+     * Reinicia la CPU para que ejecute desde el entry point del kernel.
+     * Se llama después de cargar el kernel para asegurar que la CPU
+     * comience a ejecutar desde la dirección correcta.
+     */
+    public void restartCpuFromKernel() {
+        // Asegurarse de que la CPU esté en modo 64 bits
+        cpu.setMsr(cpu.getMsr() | 0x8000000000000000L);
+        // Configurar HRMOR y HID1 para el modo real de Xenon
+        cpu.setHrmorValue(0x80000000L);
+        cpu.setHid1Value(0x80000000L);
+        // Configurar TLB para el mapeo de memoria
+        cpu.setSpr(XenonBootState.SPR_TLB_CFG_0, XenonBootState.OBSERVED_TLB_CFG_0);
+        cpu.setSpr(XenonBootState.SPR_TLB_CFG_1, XenonBootState.OBSERVED_TLB_CFG_1);
+        cpu.setSpr(XenonBootState.SPR_TLB_CFG_2, XenonBootState.OBSERVED_TLB_CFG_2);
+        System.out.println("[KERNEL] CPU reiniciada para ejecutar desde kernel");
+    }
+    
     public void loadNand(java.nio.file.Path path) throws IOException {
         sfcx.loadNand(path);
         NandImage image = sfcx.getNandImage();
@@ -379,15 +485,21 @@ public class PPCSimulator {
         try {
             ELFFile elf = new ELFFile(filename);
             // ELF de 64 bits = firmware tipo Xenon (GPU Xenos, tiling real); ELF de 32 bits = programa plano
-            xell = containsAscii(elf.elfData, "Xenon Linux Loader");
-            elfMode = elf.is64Bit() || xell; // firmware libxenon: GPU Xenos + tiling propio
+            xell = containsAscii(elf.elfData, "Xenon Linux Loader") || containsAscii(elf.elfData, "Xenos FB with");
+            elfMode = elf.is64Bit() || xell; // firmware libxenon/XeLL: GPU Xenos + tiling propio
             if (!threadsUserSet && xell) {
                 threadCount = 6; // XeLL espera que los 6 hilos hardware se registren en su mailbox
             }
             if (elfMode && !fbBaseUserSet) {
                 fbBase = FB_BASE_ELF;
             }
+            // XeLL/libxenon usa framebuffer 1280x720; NO recrear automáticamente
+            // para permitir que el firmware configure la resolución que desee
+            // if (elfMode && (fbW != 1280 || fbH != 720)) {
+            //     recreateFrameBuffer(1280, 720);
+            // }
             if (elfMode) {
+                frameBuffer.setTileMode(2);  // Xenos tiling para ELF/XeLL
                 // 0xC8000000 es la ventana de datos NAND lógica en Xenon real
                 // (el MMIO SFCX está en 0xEA00C000). El bloque de control del framebuffer es
                 // una extensión del emulador

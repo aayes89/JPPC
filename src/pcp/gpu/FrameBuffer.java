@@ -24,6 +24,7 @@
 package pcp.gpu;
 
 import java.awt.Point;
+import java.io.PrintWriter;
 import java.util.Arrays;
 
 /**
@@ -76,6 +77,9 @@ public class FrameBuffer implements Device {
         this.pitchPixels = (width + 31) & ~31;
         int paddedHeight = (height + 31) & ~31;
         this.gpuTiledBuffer = new int[Math.multiplyExact(pitchPixels, paddedHeight)];
+        // Inicializar con fondo azul (0x000000FF = azul en formato 0x00RRGGBB)
+        //Arrays.fill(gpuTiledBuffer, 0x000000FF);
+        dirty = true;
     }
 
     /** Tamaño en bytes de la ventana MMIO del framebuffer. */
@@ -223,14 +227,14 @@ public class FrameBuffer implements Device {
                 | (((x >> 3) & 1) << 6) | ((((x >> 4) & 1) ^ ((y >> 3) & 1)) << 7)
                 | (((y >> 1) & 1) << 8) | (((y >> 2) & 1) << 9) | (((y >> 3) & 1) << 10)
                 | (((y >> 4) & 1) << 11);
-        return (tile << 12) + o;
+        return (tile << 10) + o;  // 1024 = 2^10 píxeles por macro-tile row
     }
 
     private void detileXenos(int[] src, int[] dst, int w, int h) {
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 int idx = xenosTiledOffset(x, y, pitchPixels) >> 2;
-                dst[y * w + x] = idx < src.length ? Integer.reverseBytes(src[idx]) : 0;
+                dst[y * w + x] = idx < src.length ? src[idx] : 0;
             }
         }
     }
@@ -270,6 +274,23 @@ public class FrameBuffer implements Device {
         javax.imageio.ImageIO.write(img, "png", f);
     }
 
+    /** Volca el VRAM a un archivo de texto para depuración. */
+    public void dumpVRAM(java.io.File f) throws java.io.IOException {
+        java.io.PrintWriter pw = new java.io.PrintWriter(f);
+        pw.println("VRAM dump: " + gpuTiledBuffer.length + " words");
+        pw.println("tileMode=" + tileMode + " tiled=" + tiled + " pitchPixels=" + pitchPixels);
+        int nonZero = 0;
+        for (int i = 0; i < gpuTiledBuffer.length; i++) {
+            if (gpuTiledBuffer[i] != 0) nonZero++;
+            if (i < 256 || (i >= 1000 && i < 1056) || (i >= 50000 && i < 50032)) {
+                pw.printf("  [%06X] = %08X%n", i, gpuTiledBuffer[i]);
+            }
+        }
+        pw.printf("  ... total non-zero: %d / %d%n", nonZero, gpuTiledBuffer.length);
+        pw.close();
+        System.out.println("[VRAM-DUMP] " + f.getAbsolutePath() + " (" + nonZero + " non-zero)");
+    }
+
     /** Escribe un píxel desde Java respetando el modo actual (lineal/tiled). */
     public void setPixel(int x, int y, int color) {
         if (x < 0 || x >= width || y < 0 || y >= height) {
@@ -277,7 +298,7 @@ public class FrameBuffer implements Device {
         }
         int index = tileMode == 2 ? xenosTiledOffset(x, y, pitchPixels) >> 2 : (tiled ? tiledIndex(x, y) : y * width + x);
         if (index >= 0 && index < gpuTiledBuffer.length) {
-            gpuTiledBuffer[index] = tileMode == 2 ? Integer.reverseBytes(color) : color;
+            gpuTiledBuffer[index] = color;
             dirty = true;
         }
     }

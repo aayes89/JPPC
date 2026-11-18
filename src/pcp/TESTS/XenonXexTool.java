@@ -21,15 +21,22 @@ public final class XenonXexTool {
     }
 
     public static void main(String[] args) throws Exception {
-        /*if (args.length < 2) {
-            System.out.println("Uso: XenonXexTool nand.bin directorio_salida [claves.txt]");
-            return;
-        }*/
-        String nandP = "./src/pcp/TESTS/nand.bin", extDir = "./nandDump", keyText = "./keys.txt";
-
-        Path nandPath = Paths.get(nandP);
-        Path out = Paths.get(extDir);
-        Path keysPath = Paths.get(keyText);
+        if (args.length < 2 || args.length > 3) {
+            System.err.println("Uso: XenonXexTool <nand.bin> <directorio_salida> [keys.txt]");
+            System.exit(2);
+        }
+        Path nandPath = Paths.get(args[0]).toAbsolutePath().normalize();
+        Path out = Paths.get(args[1]).toAbsolutePath().normalize();
+        Path keysPath = args.length == 3 ? Paths.get(args[2]).toAbsolutePath().normalize() : null;
+        if (!Files.isRegularFile(nandPath)) {
+            throw new java.io.IOException("No existe NAND: " + nandPath);
+        }
+        if (keysPath != null && !Files.isRegularFile(keysPath)) {
+            throw new java.io.IOException("No existe archivo de claves: " + keysPath);
+        }
+        System.out.println("NAND: " + nandPath);
+        System.out.println("Salida: " + out);
+        System.out.println("Claves: " + (keysPath == null ? "ninguna" : keysPath));
         Files.createDirectories(out.resolve("fs"));
         Files.createDirectories(out.resolve("image"));
         Files.createDirectories(out.resolve("resources"));
